@@ -1,0 +1,22 @@
+std :: #import "std";
+libc :: #import "libc";
+rl :: #import "./vendor/raylib/raylib.mylang";
+rm :: #import "./vendor/raylib/raymath.mylang";
+
+main :: -> {
+    std.println("Hello World");
+
+    rl.InitWindow(1000, 1000, "dev".ptr);
+    defer rl.CloseWindow();
+
+    rl.SetExitKey(.NULL);
+
+    rl.SetTargetFPS(60);
+
+    while not rl.WindowShouldClose() {
+        rl.BeginDrawing();
+        rl.ClearBackground(rl.RAYWHITE);
+        rl.DrawText("Congrats! You created your first window!".ptr, 190, 200, 30, rl.RED);
+        rl.EndDrawing();
+    }
+}
