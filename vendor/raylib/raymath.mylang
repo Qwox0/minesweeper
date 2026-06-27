@@ -73,127 +73,14 @@ EPSILON :: 0.000001; // suffix: 'f'
 // TODO(macro) RAD2DEG :: '(' (Punctuation) '180.0f' (Literal) '/' (Punctuation) 'PI' (Identifier) ')' (Punctuation);
 // TODO(macro) MatrixToFloat :: '(' (Punctuation) 'mat' (Identifier) ')' (Punctuation) '(' (Punctuation) 'MatrixToFloatV' (Identifier) '(' (Punctuation) 'mat' (Identifier) ')' (Punctuation) '.' (Punctuation) 'v' (Identifier) ')' (Punctuation);
 // TODO(macro) Vector3ToFloat :: '(' (Punctuation) 'vec' (Identifier) ')' (Punctuation) '(' (Punctuation) 'Vector3ToFloatV' (Identifier) '(' (Punctuation) 'vec' (Identifier) ')' (Punctuation) '.' (Punctuation) 'v' (Identifier) ')' (Punctuation);
-// #define RL_VECTOR2_TYPE
-// #define RL_VECTOR3_TYPE
-// #define RL_VECTOR4_TYPE
-// #define RL_QUATERNION_TYPE
-// #define RL_MATRIX_TYPE
-// #define RL_FLOAT3_TYPE
-// #define RL_FLOAT16_TYPE
 
-// #include /usr/include/math.h
+rl :: #import "./raylib.mylang";
 
-// #include /usr/include/x86_64-linux-gnu/bits/libc-header-start.h
-
-// #include /usr/include/features.h
-
-// #include /usr/include/features-time64.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/wordsize.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/timesize.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/wordsize.h
-
-// #include /usr/include/stdc-predef.h
-
-// #include /usr/include/x86_64-linux-gnu/sys/cdefs.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/wordsize.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/long-double.h
-
-// #include /usr/include/x86_64-linux-gnu/gnu/stubs.h
-
-// #include /usr/include/x86_64-linux-gnu/gnu/stubs-64.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/types.h
-
-// #include /usr/include/features.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/wordsize.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/timesize.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/wordsize.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/typesizes.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/time64.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/math-vector.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/floatn.h
-
-// #include /usr/include/features.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/floatn-common.h
-
-// #include /usr/include/features.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/long-double.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/flt-eval-method.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/fp-logb.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/fp-fast.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/mathcalls-macros.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/mathcalls.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/mathcalls.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/mathcalls.h
-
-// #include /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h
-structs.Vector2 :: struct {
-    x: f32;
-    y: f32;
-};
-Vector2 :: structs.Vector2;
-structs.Vector3 :: struct {
-    x: f32;
-    y: f32;
-    z: f32;
-};
-Vector3 :: structs.Vector3;
-structs.Vector4 :: struct {
-    x: f32;
-    y: f32;
-    z: f32;
-    w: f32;
-};
-Vector4 :: structs.Vector4;
+Vector2 :: rl.Vector2;
+Vector3 :: rl.Vector3;
+Vector4 :: rl.Vector4;
 Quaternion :: Vector4;
-structs.Matrix :: struct {
-    m0: f32;
-    m4: f32;
-    m8: f32;
-    m12: f32;
-    m1: f32;
-    m5: f32;
-    m9: f32;
-    m13: f32;
-    m2: f32;
-    m6: f32;
-    m10: f32;
-    m14: f32;
-    m3: f32;
-    m7: f32;
-    m11: f32;
-    m15: f32;
-};
-Matrix :: structs.Matrix;
+Matrix :: rl.Matrix;
 structs.float3 :: struct {
     v: [3]f32;
 };
@@ -202,87 +89,7 @@ structs.float16 :: struct {
     v: [16]f32;
 };
 float16 :: structs.float16;
-__u_char :: u8;
-__u_short :: u16;
-__u_int :: u32;
-__u_long :: u64;
-__int8_t :: i8;
-__uint8_t :: u8;
-__int16_t :: i16;
-__uint16_t :: u16;
-__int32_t :: i32;
-__uint32_t :: u32;
-__int64_t :: i64;
-__uint64_t :: u64;
-__int_least8_t :: __int8_t;
-__uint_least8_t :: __uint8_t;
-__int_least16_t :: __int16_t;
-__uint_least16_t :: __uint16_t;
-__int_least32_t :: __int32_t;
-__uint_least32_t :: __uint32_t;
-__int_least64_t :: __int64_t;
-__uint_least64_t :: __uint64_t;
-__quad_t :: i64;
-__u_quad_t :: u64;
-__intmax_t :: i64;
-__uintmax_t :: u64;
-__dev_t :: u64;
-__uid_t :: u32;
-__gid_t :: u32;
-__ino_t :: u64;
-__ino64_t :: u64;
-__mode_t :: u32;
-__nlink_t :: u64;
-__off_t :: i64;
-__off64_t :: i64;
-__pid_t :: i32;
-structs.__fsid_t :: struct {
-    __val: [2]i32;
-};
-__fsid_t :: structs.__fsid_t;
-__clock_t :: i64;
-__rlim_t :: u64;
-__rlim64_t :: u64;
-__id_t :: u32;
-__time_t :: i64;
-__useconds_t :: u32;
-__suseconds_t :: i64;
-__suseconds64_t :: i64;
-__daddr_t :: i32;
-__key_t :: i32;
-__clockid_t :: i32;
-__timer_t :: ?*mut any;
-__blksize_t :: i64;
-__blkcnt_t :: i64;
-__blkcnt64_t :: i64;
-__fsblkcnt_t :: u64;
-__fsblkcnt64_t :: u64;
-__fsfilcnt_t :: u64;
-__fsfilcnt64_t :: u64;
-__fsword_t :: i64;
-__ssize_t :: i64;
-__syscall_slong_t :: i64;
-__syscall_ulong_t :: u64;
-__loff_t :: __off64_t;
-__caddr_t :: ?*mut u8;
-__intptr_t :: i64;
-__socklen_t :: u32;
-__sig_atomic_t :: i32;
-__cfloat128 :: struct { real: f128, imag: f128 };
 _Float128 :: f128;
-_Float32 :: f32;
-_Float64 :: f64;
-_Float32x :: f64;
-_Float64x :: f128;
-float_t :: f32;
-double_t :: f64;
-__fpclassify : (__value: f64) -> i32 : #extern;
-__signbit : (__value: f64) -> i32 : #extern;
-__isinf : (__value: f64) -> i32 : #extern;
-__finite : (__value: f64) -> i32 : #extern;
-__isnan : (__value: f64) -> i32 : #extern;
-__iseqsig : (__x: f64, __y: f64) -> i32 : #extern;
-__issignaling : (__value: f64) -> i32 : #extern;
 acos : (__x: f64) -> f64 : #extern;
 __acos : (__x: f64) -> f64 : #extern;
 asin : (__x: f64) -> f64 : #extern;

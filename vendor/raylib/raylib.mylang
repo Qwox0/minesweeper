@@ -428,7 +428,7 @@ structs.AutomationEventList :: struct {
 };
 AutomationEventList :: structs.AutomationEventList;
 ConfigFlags :: enum {
-    VSYNC_HINT = 64,
+    VSYNC_HINT = 64.as(u32),
     FULLSCREEN_MODE = 2,
     WINDOW_RESIZABLE = 4,
     WINDOW_UNDECORATED = 8,
@@ -446,7 +446,7 @@ ConfigFlags :: enum {
     INTERLACED_HINT = 65536,
 };
 TraceLogLevel :: enum {
-    ALL = 0,
+    ALL = 0.as(i32),
     TRACE = 1,
     DEBUG = 2,
     INFO = 3,
@@ -456,7 +456,7 @@ TraceLogLevel :: enum {
     NONE = 7,
 };
 KeyboardKey :: enum {
-    NULL = 0,
+    NULL = 0.as(i32),
     APOSTROPHE = 39,
     COMMA = 44,
     MINUS = 45,
@@ -568,7 +568,7 @@ KeyboardKey :: enum {
     VOLUME_DOWN = 25,
 };
 MouseButton :: enum {
-    LEFT = 0,
+    LEFT = 0.as(i32),
     RIGHT = 1,
     MIDDLE = 2,
     SIDE = 3,
@@ -577,7 +577,7 @@ MouseButton :: enum {
     BACK = 6,
 };
 MouseCursor :: enum {
-    DEFAULT = 0,
+    DEFAULT = 0.as(i32),
     ARROW = 1,
     IBEAM = 2,
     CROSSHAIR = 3,
@@ -590,7 +590,7 @@ MouseCursor :: enum {
     NOT_ALLOWED = 10,
 };
 GamepadButton :: enum {
-    UNKNOWN = 0,
+    UNKNOWN = 0.as(i32),
     LEFT_FACE_UP = 1,
     LEFT_FACE_RIGHT = 2,
     LEFT_FACE_DOWN = 3,
@@ -610,7 +610,7 @@ GamepadButton :: enum {
     RIGHT_THUMB = 17,
 };
 GamepadAxis :: enum {
-    LEFT_X = 0,
+    LEFT_X = 0.as(i32),
     LEFT_Y = 1,
     RIGHT_X = 2,
     RIGHT_Y = 3,
@@ -618,7 +618,7 @@ GamepadAxis :: enum {
     RIGHT_TRIGGER = 5,
 };
 MaterialMapIndex :: enum {
-    ALBEDO = 0,
+    ALBEDO = 0.as(i32),
     METALNESS = 1,
     NORMAL = 2,
     ROUGHNESS = 3,
@@ -631,7 +631,7 @@ MaterialMapIndex :: enum {
     BRDF = 10,
 };
 ShaderLocationIndex :: enum {
-    VERTEX_POSITION = 0,
+    VERTEX_POSITION = 0.as(i32),
     VERTEX_TEXCOORD01 = 1,
     VERTEX_TEXCOORD02 = 2,
     VERTEX_NORMAL = 3,
@@ -663,7 +663,7 @@ ShaderLocationIndex :: enum {
     VERTEX_INSTANCETRANSFORM = 29,
 };
 ShaderUniformDataType :: enum {
-    FLOAT = 0,
+    FLOAT = 0.as(i32),
     VEC2 = 1,
     VEC3 = 2,
     VEC4 = 3,
@@ -678,13 +678,13 @@ ShaderUniformDataType :: enum {
     SAMPLER2D = 12,
 };
 ShaderAttributeDataType :: enum {
-    FLOAT = 0,
+    FLOAT = 0.as(i32),
     VEC2 = 1,
     VEC3 = 2,
     VEC4 = 3,
 };
 PixelFormat :: enum {
-    UNCOMPRESSED_GRAYSCALE = 1,
+    UNCOMPRESSED_GRAYSCALE = 1.as(i32),
     UNCOMPRESSED_GRAY_ALPHA = 2,
     UNCOMPRESSED_R5G6B5 = 3,
     UNCOMPRESSED_R8G8B8 = 4,
@@ -710,7 +710,7 @@ PixelFormat :: enum {
     COMPRESSED_ASTC_8x8_RGBA = 24,
 };
 TextureFilter :: enum {
-    POINT = 0,
+    POINT = 0.as(i32),
     BILINEAR = 1,
     TRILINEAR = 2,
     ANISOTROPIC_4X = 3,
@@ -718,25 +718,25 @@ TextureFilter :: enum {
     ANISOTROPIC_16X = 5,
 };
 TextureWrap :: enum {
-    REPEAT = 0,
+    REPEAT = 0.as(i32),
     CLAMP = 1,
     MIRROR_REPEAT = 2,
     MIRROR_CLAMP = 3,
 };
 CubemapLayout :: enum {
-    AUTO_DETECT = 0,
+    AUTO_DETECT = 0.as(i32),
     LINE_VERTICAL = 1,
     LINE_HORIZONTAL = 2,
     CROSS_THREE_BY_FOUR = 3,
     CROSS_FOUR_BY_THREE = 4,
 };
 FontType :: enum {
-    DEFAULT = 0,
+    DEFAULT = 0.as(i32),
     BITMAP = 1,
     SDF = 2,
 };
 BlendMode :: enum {
-    ALPHA = 0,
+    ALPHA = 0.as(i32),
     ADDITIVE = 1,
     MULTIPLIED = 2,
     ADD_COLORS = 3,
@@ -746,7 +746,7 @@ BlendMode :: enum {
     CUSTOM_SEPARATE = 7,
 };
 Gesture :: enum {
-    NONE = 0,
+    NONE = 0.as(i32),
     TAP = 1,
     DOUBLETAP = 2,
     HOLD = 4,
@@ -759,18 +759,18 @@ Gesture :: enum {
     PINCH_OUT = 512,
 };
 CameraMode :: enum {
-    CUSTOM = 0,
+    CUSTOM = 0.as(i32),
     FREE = 1,
     ORBITAL = 2,
     FIRST_PERSON = 3,
     THIRD_PERSON = 4,
 };
 CameraProjection :: enum {
-    PERSPECTIVE = 0,
+    PERSPECTIVE = 0.as(i32),
     ORTHOGRAPHIC = 1,
 };
 NPatchLayout :: enum {
-    NINE_PATCH = 0,
+    NINE_PATCH = 0.as(i32),
     THREE_PATCH_VERTICAL = 1,
     THREE_PATCH_HORIZONTAL = 2,
 };
@@ -779,55 +779,57 @@ LoadFileDataCallback :: *(_0: ?*u8, _1: ?*mut i32) -> ?*mut u8;
 SaveFileDataCallback :: *(_0: ?*u8, _1: ?*mut any, _2: i32) -> bool;
 LoadFileTextCallback :: *(_0: ?*u8) -> ?*mut u8;
 SaveFileTextCallback :: *(_0: ?*u8, _1: ?*u8) -> bool;
-InitWindow : (width: i32, height: i32, title: ?*u8) -> void : #extern;
-CloseWindow : () -> void : #extern;
-WindowShouldClose : () -> bool : #extern;
-IsWindowReady : () -> bool : #extern;
-IsWindowFullscreen : () -> bool : #extern;
-IsWindowHidden : () -> bool : #extern;
-IsWindowMinimized : () -> bool : #extern;
-IsWindowMaximized : () -> bool : #extern;
-IsWindowFocused : () -> bool : #extern;
-IsWindowResized : () -> bool : #extern;
-IsWindowState : (flag: u32) -> bool : #extern;
-SetWindowState : (flags: u32) -> void : #extern;
-ClearWindowState : (flags: u32) -> void : #extern;
-ToggleFullscreen : () -> void : #extern;
+
+InitWindow               : (width: i32, height: i32, title: ?*u8) -> void : #extern;
+CloseWindow              : () -> void : #extern;
+WindowShouldClose        : () -> bool : #extern;
+IsWindowReady            : () -> bool : #extern;
+IsWindowFullscreen       : () -> bool : #extern;
+IsWindowHidden           : () -> bool : #extern;
+IsWindowMinimized        : () -> bool : #extern;
+IsWindowMaximized        : () -> bool : #extern;
+IsWindowFocused          : () -> bool : #extern;
+IsWindowResized          : () -> bool : #extern;
+IsWindowState            : (flag: ConfigFlags) -> bool : #extern;
+SetWindowState           : (flags: ConfigFlags) -> void : #extern;
+ClearWindowState         : (flags: ConfigFlags) -> void : #extern;
+ToggleFullscreen         : () -> void : #extern;
 ToggleBorderlessWindowed : () -> void : #extern;
-MaximizeWindow : () -> void : #extern;
-MinimizeWindow : () -> void : #extern;
-RestoreWindow : () -> void : #extern;
-SetWindowIcon : (image: Image) -> void : #extern;
-SetWindowIcons : (images: ?*mut Image, count: i32) -> void : #extern;
-SetWindowTitle : (title: ?*u8) -> void : #extern;
-SetWindowPosition : (x: i32, y: i32) -> void : #extern;
-SetWindowMonitor : (monitor: i32) -> void : #extern;
-SetWindowMinSize : (width: i32, height: i32) -> void : #extern;
-SetWindowMaxSize : (width: i32, height: i32) -> void : #extern;
-SetWindowSize : (width: i32, height: i32) -> void : #extern;
-SetWindowOpacity : (opacity: f32) -> void : #extern;
-SetWindowFocused : () -> void : #extern;
-GetWindowHandle : () -> ?*mut any : #extern;
-GetScreenWidth : () -> i32 : #extern;
-GetScreenHeight : () -> i32 : #extern;
-GetRenderWidth : () -> i32 : #extern;
-GetRenderHeight : () -> i32 : #extern;
-GetMonitorCount : () -> i32 : #extern;
-GetCurrentMonitor : () -> i32 : #extern;
-GetMonitorPosition : (monitor: i32) -> Vector2 : #extern;
-GetMonitorWidth : (monitor: i32) -> i32 : #extern;
-GetMonitorHeight : (monitor: i32) -> i32 : #extern;
-GetMonitorPhysicalWidth : (monitor: i32) -> i32 : #extern;
+MaximizeWindow           : () -> void : #extern;
+MinimizeWindow           : () -> void : #extern;
+RestoreWindow            : () -> void : #extern;
+SetWindowIcon            : (image: Image) -> void : #extern;
+SetWindowIcons           : (images: ?*mut Image, count: i32) -> void : #extern;
+SetWindowTitle           : (title: ?*u8) -> void : #extern;
+SetWindowPosition        : (x: i32, y: i32) -> void : #extern;
+SetWindowMonitor         : (monitor: i32) -> void : #extern;
+SetWindowMinSize         : (width: i32, height: i32) -> void : #extern;
+SetWindowMaxSize         : (width: i32, height: i32) -> void : #extern;
+SetWindowSize            : (width: i32, height: i32) -> void : #extern;
+SetWindowOpacity         : (opacity: f32) -> void : #extern;
+SetWindowFocused         : () -> void : #extern;
+GetWindowHandle          : () -> ?*mut any : #extern;
+GetScreenWidth           : () -> i32 : #extern;
+GetScreenHeight          : () -> i32 : #extern;
+GetRenderWidth           : () -> i32 : #extern;
+GetRenderHeight          : () -> i32 : #extern;
+GetMonitorCount          : () -> i32 : #extern;
+GetCurrentMonitor        : () -> i32 : #extern;
+GetMonitorPosition       : (monitor: i32) -> Vector2 : #extern;
+GetMonitorWidth          : (monitor: i32) -> i32 : #extern;
+GetMonitorHeight         : (monitor: i32) -> i32 : #extern;
+GetMonitorPhysicalWidth  : (monitor: i32) -> i32 : #extern;
 GetMonitorPhysicalHeight : (monitor: i32) -> i32 : #extern;
-GetMonitorRefreshRate : (monitor: i32) -> i32 : #extern;
-GetWindowPosition : () -> Vector2 : #extern;
-GetWindowScaleDPI : () -> Vector2 : #extern;
-GetMonitorName : (monitor: i32) -> ?*u8 : #extern;
-SetClipboardText : (text: ?*u8) -> void : #extern;
-GetClipboardText : () -> ?*u8 : #extern;
-GetClipboardImage : () -> Image : #extern;
-EnableEventWaiting : () -> void : #extern;
-DisableEventWaiting : () -> void : #extern;
+GetMonitorRefreshRate    : (monitor: i32) -> i32 : #extern;
+GetWindowPosition        : () -> Vector2 : #extern;
+GetWindowScaleDPI        : () -> Vector2 : #extern;
+GetMonitorName           : (monitor: i32) -> ?*u8 : #extern;
+SetClipboardText         : (text: ?*u8) -> void : #extern;
+GetClipboardText         : () -> ?*u8 : #extern;
+GetClipboardImage        : () -> Image : #extern;
+EnableEventWaiting       : () -> void : #extern;
+DisableEventWaiting      : () -> void : #extern;
+
 ShowCursor : () -> void : #extern;
 HideCursor : () -> void : #extern;
 IsCursorHidden : () -> bool : #extern;
@@ -882,9 +884,11 @@ SetRandomSeed : (seed: u32) -> void : #extern;
 GetRandomValue : (min: i32, max: i32) -> i32 : #extern;
 LoadRandomSequence : (count: u32, min: i32, max: i32) -> ?*mut i32 : #extern;
 UnloadRandomSequence : (sequence: ?*mut i32) -> void : #extern;
+
 TakeScreenshot : (fileName: ?*u8) -> void : #extern;
-SetConfigFlags : (flags: u32) -> void : #extern;
+SetConfigFlags : (flags: ConfigFlags) -> void : #extern;
 OpenURL : (url: ?*u8) -> void : #extern;
+
 SetTraceLogLevel : (logLevel: i32) -> void : #extern;
 TraceLog : #varargs (logLevel: i32, text: ?*u8) -> void : #extern;
 SetTraceLogCallback : (callback: TraceLogCallback) -> void : #extern;
@@ -970,20 +974,23 @@ GetGamepadAxisCount : (gamepad: i32) -> i32 : #extern;
 GetGamepadAxisMovement : (gamepad: i32, axis: i32) -> f32 : #extern;
 SetGamepadMappings : (mappings: ?*u8) -> i32 : #extern;
 SetGamepadVibration : (gamepad: i32, leftMotor: f32, rightMotor: f32, duration: f32) -> void : #extern;
-IsMouseButtonPressed : (button: i32) -> bool : #extern;
-IsMouseButtonDown : (button: i32) -> bool : #extern;
-IsMouseButtonReleased : (button: i32) -> bool : #extern;
-IsMouseButtonUp : (button: i32) -> bool : #extern;
-GetMouseX : () -> i32 : #extern;
-GetMouseY : () -> i32 : #extern;
-GetMousePosition : () -> Vector2 : #extern;
-GetMouseDelta : () -> Vector2 : #extern;
-SetMousePosition : (x: i32, y: i32) -> void : #extern;
-SetMouseOffset : (offsetX: i32, offsetY: i32) -> void : #extern;
-SetMouseScale : (scaleX: f32, scaleY: f32) -> void : #extern;
-GetMouseWheelMove : () -> f32 : #extern;
-GetMouseWheelMoveV : () -> Vector2 : #extern;
-SetMouseCursor : (cursor: i32) -> void : #extern;
+
+IsMouseButtonPressed  : (button: MouseButton) -> bool : #extern;
+IsMouseButtonDown     : (button: MouseButton) -> bool : #extern;
+IsMouseButtonReleased : (button: MouseButton) -> bool : #extern;
+IsMouseButtonUp       : (button: MouseButton) -> bool : #extern;
+
+GetMouseX             : () -> i32 : #extern;
+GetMouseY             : () -> i32 : #extern;
+GetMousePosition      : () -> Vector2 : #extern;
+GetMouseDelta         : () -> Vector2 : #extern;
+SetMousePosition      : (x: i32, y: i32) -> void : #extern;
+SetMouseOffset        : (offsetX: i32, offsetY: i32) -> void : #extern;
+SetMouseScale         : (scaleX: f32, scaleY: f32) -> void : #extern;
+GetMouseWheelMove     : () -> f32 : #extern;
+GetMouseWheelMoveV    : () -> Vector2 : #extern;
+SetMouseCursor        : (cursor: MouseCursor) -> void : #extern;
+
 GetTouchX : () -> i32 : #extern;
 GetTouchY : () -> i32 : #extern;
 GetTouchPosition : (index: i32) -> Vector2 : #extern;

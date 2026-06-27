@@ -2,21 +2,176 @@ std :: #import "std";
 libc :: #import "libc";
 rl :: #import "./vendor/raylib/raylib.mylang";
 rm :: #import "./vendor/raylib/raymath.mylang";
+Vector2 :: rl.Vector2;
+Rectangle :: rl.Rectangle;
+
+DEV :: true;
+
+Grid :: struct {
+    // Config
+    rows: u32;
+    columns: u32;
+    mine_count: u32;
+
+    cells: Cells;
+
+    destroy :: (g: Grid) -> g.cells.destroy();
+}
+
+Cells :: struct {
+    data: []mut Cell;
+    alloc: std.mem.Allocator;
+
+    destroy :: (self: Cells) -> self.alloc.free(self.data.ptr);
+}
+
+Cell :: struct {
+    kind: enum { Mine, Number(u8) };
+    state: enum { Closed, Open, Flagged } = .Closed;
+}
+
+CellPos :: struct { x: u32, y: u32 };
+
+Cells.new_uninit :: (count: uint, alloc: std.mem.Allocator) -> ?Cells {
+    buf := alloc.alloc(count * #sizeof(Cell), #alignof(Cell)) orelse return null;
+    Cells.{ data=.{ ptr=buf.as(*mut Cell), len=count }, alloc }
+}
+
+Grid.new_empty :: (rows: u32, columns: u32, alloc: std.mem.Allocator) -> ?Grid {
+    cells := Cells.new_uninit(xx rows * columns, alloc) orelse return null;
+    for idx in 0..cells.data.len do cells.data[idx] = .{ kind = .Number(0) };
+
+    Grid.{ rows, columns, mine_count = 0, cells }
+}
 
 main :: -> {
-    std.println("Hello World");
+    mut buf: [1 * 1024 * 1024]u8;
+    alloc := std.mem.FixedArenaAllocator.new(buf[..]mut).&mut.allocator();
+    std.ctx.alloc = alloc;
 
-    rl.InitWindow(1000, 1000, "dev".ptr);
+    if DEV rl.SetConfigFlags(.WINDOW_UNFOCUSED);
+
+    rl.SetConfigFlags(.WINDOW_RESIZABLE);
+
+    rl.InitWindow(1000, 1000, "OpenGL Triangle".ptr);
     defer rl.CloseWindow();
 
     rl.SetExitKey(.NULL);
-
     rl.SetTargetFPS(60);
 
+    grid := Grid.new_empty(10, 10, alloc) orelse std.panic("oom");
+    defer grid.destroy();
+
     while not rl.WindowShouldClose() {
+        screen: struct { width: i32, height: i32 } = .(
+            rl.GetScreenWidth(),
+            rl.GetScreenHeight(),
+        );
+
+        GRID_PADDING :: 20;
+        GRID_BORDER_WIDTH :: 12;
+        CELL_GAP :: 6;
+        CELL_GAP_V := Vector2.splat(CELL_GAP);
+
+        grid_size_with_pad := if screen.width < screen.height then screen.width else screen.height;
+        std.assert(grid.rows == grid.columns, "TODO: grid.rows != grid.columns");
+        grid_size := grid_size_with_pad - 2 * GRID_PADDING;
+        grid_offset: i32 = GRID_PADDING;
+
+        grid_content_size := grid_size.as(f32) - 2 * GRID_BORDER_WIDTH;
+        grid_content_offset := grid_offset.as(f32) + GRID_BORDER_WIDTH;
+        grid_content := Rectangle.(grid_content_offset, grid_content_offset, grid_content_size, grid_content_size);
+        cell_size := (grid_content_size + CELL_GAP) / grid.rows.as(f32) - CELL_GAP;
+
+        mouse_pos := rl.GetMousePosition();
+        mouse_delta := rl.GetMouseDelta();
+
+        cell_and_gap_size := Vector2.splat(cell_size + CELL_GAP);
+        hovered_cell := if rl.CheckCollisionPointRec(mouse_pos, grid_content) {
+            mouse_posspace := mouse_pos.sub(grid_content.pos()).div(cell_and_gap_size);
+            gap_posspace := CELL_GAP_V.div(cell_and_gap_size);
+
+            mut x: f32; mut y: f32;
+            x_frac := libc.modff(mouse_posspace.x, &mut x);
+            y_frac := libc.modff(mouse_posspace.y, &mut y);
+
+            is_on_border := x_frac + gap_posspace.x > 1 or y_frac + gap_posspace.y > 1;
+
+            if is_on_border then null else Some(CellPos.(x.as(u32), y.as(u32)))
+        } else null;
+
+        { // Mouse clicks
+            if rl.IsMouseButtonPressed(.LEFT) {
+                std.println("MouseButtonPressed(.LEFT)");
+            } else if rl.IsMouseButtonPressed(.RIGHT) {
+                std.println("MouseButtonPressed(.RIGHT)");
+            }
+        }
+
+        // ----------------- Draw -----------------
         rl.BeginDrawing();
+        defer rl.EndDrawing();
+
         rl.ClearBackground(rl.RAYWHITE);
-        rl.DrawText("Congrats! You created your first window!".ptr, 190, 200, 30, rl.RED);
-        rl.EndDrawing();
+
+        CELL_BG_COLOR :: rl.LIGHTGRAY;
+        CELL_GAP_COLOR :: rl.GRAY;
+        CELL_HOVER_COLOR :: rl.LIME;
+        rl.DrawRectangleRec(grid_content, CELL_BG_COLOR);
+
+        { // Grid border
+            rl.BeginMode2D(.{ offset=.splat(grid_offset.as(f32)), target=.(0,0), rotation=0, zoom=1 });
+            defer rl.EndMode2D();
+
+            rl.DrawRectangle(0, 0, grid_size, GRID_BORDER_WIDTH, CELL_GAP_COLOR);
+            rl.DrawRectangle(0, 0, GRID_BORDER_WIDTH, grid_size, CELL_GAP_COLOR);
+            rl.DrawRectangle(0, grid_size - GRID_BORDER_WIDTH, grid_size, GRID_BORDER_WIDTH, CELL_GAP_COLOR);
+            rl.DrawRectangle(grid_size - GRID_BORDER_WIDTH, 0, GRID_BORDER_WIDTH, grid_size, CELL_GAP_COLOR);
+        }
+
+        { // Grid content
+            //rl.BeginMode2D(.{ offset=.splat(grid_size_with_pad.as(f32) / 2), target=.splat(grid_content_size/2), rotation=30, zoom=1 });
+            rl.BeginMode2D(.{ offset=.splat(grid_content_offset), target=.(0,0), rotation=0, zoom=1 });
+            defer rl.EndMode2D();
+
+            { // Cell borders
+                std.assert(grid.rows > 0);
+                for idx in 0..(grid.rows - 1) {
+                    rl.DrawRectangleV(
+                        .(cell_size + idx.as(f32) * (CELL_GAP + cell_size), 0),
+                        .(CELL_GAP, grid_content_size),
+                        CELL_GAP_COLOR,
+                    );
+                }
+                std.assert(grid.columns > 0);
+                for idx in 0..(grid.columns - 1) {
+                    rl.DrawRectangleV(
+                        .(0, cell_size + idx.as(f32) * (CELL_GAP + cell_size)),
+                        .(grid_content_size, CELL_GAP),
+                        CELL_GAP_COLOR,
+                    );
+                }
+            }
+
+            switch hovered_cell {
+                Some :> rl.DrawRectangleV(
+                    hovered_cell.as_vec2().mul(cell_and_gap_size),
+                    .splat(cell_size),
+                    CELL_HOVER_COLOR,
+                );
+            } else {}
+        }
     }
 }
+
+CellPos.as_vec2 :: (p: CellPos) -> Vector2.(p.x.as(f32), p.y.as(f32));
+
+Vector2.splat :: (val: f32) -> Vector2.(val, val);
+Vector2.add :: rm.Vector2Add;
+Vector2.add_val :: rm.Vector2AddValue;
+Vector2.sub :: rm.Vector2Subtract;
+Vector2.mul :: rm.Vector2Multiply;
+Vector2.div :: rm.Vector2Divide;
+
+Rectangle.pos :: (r: Rectangle) -> Vector2.(r.x, r.y);
+Rectangle.size :: (r: Rectangle) -> Vector2.(r.width, r.height);
