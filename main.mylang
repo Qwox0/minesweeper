@@ -83,12 +83,29 @@ main :: -> {
     rl.SetExitKey(.NULL);
     rl.SetTargetFPS(60);
 
+    // ----------------- sprites -----------------
+    flag_mine_texture := rl.LoadTexture("./assets/VectorMinesweeper/VectorMinesweeperFlagMine.png".ptr);
+    defer rl.UnloadTexture(flag_mine_texture);
+    flag_mine_sprite_width := flag_mine_texture.width.as(f32);
+    flag_mine_sprite_height := flag_mine_texture.height.as(f32) / 2;
+    flag_sprite := Sprite.(&flag_mine_texture,
+        .{ x=0, y=0, width=flag_mine_sprite_width, height=flag_mine_sprite_height });
+    mine_sprite := Sprite.(&flag_mine_texture,
+        .{ x=0, y=flag_mine_sprite_height, width=flag_mine_sprite_width, height=flag_mine_sprite_height });
+
+    // ----------------- Grid init -----------------
+    grid_init_start := rl.GetTime();
     //mut grid := Grid.new_random(10, 10, 16, alloc) orelse std.panic("oom");
     mut grid := Grid.new_random(10, 10, 50, alloc) orelse std.panic("oom");
     defer grid.destroy();
 
+    grid_init_took := rl.GetTime() - grid_init_start;
+    libc.printf("grid init took %fus\n".ptr, (grid_init_took)*1000*1000); // μ
+
+    //grid.&mut.reveal_all();
     grid.print();
 
+    // ----------------- Loop -----------------
     while not rl.WindowShouldClose() {
         screen: struct { width: i32, height: i32 } = .(
             rl.GetScreenWidth(),
@@ -155,7 +172,7 @@ main :: -> {
 
         CELL_BG_COLOR :: rl.LIGHTGRAY;
         CELL_GAP_COLOR :: rl.GRAY;
-        CELL_HOVER_COLOR :: rl.LIME;
+        CELL_HOVER_BG :: rl.LIME;
         rl.DrawRectangleRec(grid_content, CELL_BG_COLOR);
 
         { // Grid border
@@ -167,6 +184,8 @@ main :: -> {
             rl.DrawRectangle(0, grid_size - GRID_BORDER_WIDTH, grid_size, GRID_BORDER_WIDTH, CELL_GAP_COLOR);
             rl.DrawRectangle(grid_size - GRID_BORDER_WIDTH, 0, GRID_BORDER_WIDTH, grid_size, CELL_GAP_COLOR);
         }
+
+        BOMB_EXPLODED_BG :: rl.Color.(250, 95, 103, 255);
 
         { // Grid content
             //rl.BeginMode2D(.{ offset=.splat(grid_size_with_pad.as(f32) / 2), target=.splat(grid_content_size/2), rotation=30, zoom=1 });
@@ -193,42 +212,42 @@ main :: -> {
             }
 
             for row_idx in 0..grid.rows for col_idx in 0..grid.columns {
-                offset := Vector2.(col_idx.as(f32), row_idx.as(f32)).mul(cell_and_gap_size);
                 pos := CellPos.(col_idx, row_idx);
+                offset := pos.as_vec2().mul(cell_and_gap_size);
                 cell := grid.&.get_cell(pos);
-                switch cell.state {
-                    .Closed :> {
-                        is_hovered := switch hovered_cell_pos {
-                            Some :> pos.eq(hovered_cell_pos);
-                        } else false;
-                        color := if is_hovered then CELL_HOVER_COLOR else rl.RAYWHITE;
-                        rl.DrawRectangleV(offset, .splat(cell_size), color);
-                        continue;
-                    },
-                    .Open :> {},
-                    .Flagged :> {/* TODO */},
+                if cell.state != .Open {
+                    is_hovered := switch hovered_cell_pos {
+                        Some :> pos.eq(hovered_cell_pos);
+                    } else false;
+                    color := if is_hovered then CELL_HOVER_BG else rl.RAYWHITE;
+                    rl.DrawRectangleV(offset, .splat(cell_size), color);
+                    if cell.state == .Flagged {
+                        DrawSprite(flag_sprite, offset, Some(.splat(cell_size)));
+                    }
+                    continue;
                 }
                 kind := cell.kind;
-                text: struct { cstr: *u8, color: rl.Color } = switch kind {
-                    .Mine :> .{ cstr="*".ptr, color=rl.BLACK }, // TODO
+                switch kind {
+                    .Mine :> {
+                        DrawSprite(mine_sprite, offset, Some(.splat(cell_size)));
+                    },
                     .Number :> {
                         mut text_buf: [8]u8;
                         text_buf := text_buf[..]mut;
                         wrote := libc.snprintf(text_buf.ptr, text_buf.len, "%d".ptr, kind);
                         std.assert(wrote.as(uint) < text_buf.len);
                         std.assert(kind.as(uint) <= num_colors[..].len);
-                        .{ cstr=text_buf.ptr, color=num_colors[kind] }
+                        font_size := 0.85 * cell_size;
+                        text_width := MeasureTextF(text_buf.ptr, font_size);
+                        pad_left := (cell_size - text_width) / 2;
+                        // MeasureTextEx returns the font size, not the size of a glyph
+                        // => MeasureTextEx cannot be used to vertically center glyphs
+                        // The default font has a total height of 10 pixels, a one pixel gap above numbers
+                        // and a 2 pixel gap below numbers.
+                        pad_top := (cell_size - font_size * 0.9) / 2;
+                        DrawTextV(text_buf.ptr, offset.add(.(pad_left, pad_top)), font_size, num_colors[kind]);
                     },
                 };
-                font_size := 0.85 * cell_size;
-                text_width := MeasureTextF(text.cstr, font_size);
-                pad_left := (cell_size - text_width) / 2;
-                // MeasureTextEx returns the font size, not the size of a glyph
-                // => MeasureTextEx cannot be used to vertically center glyphs
-                // The default font has a total height of 10 pixels, a one pixel gap above numbers
-                // and a 2 pixel gap below numbers.
-                pad_top := (cell_size - font_size * 0.9) / 2;
-                DrawTextV(text.cstr, offset.add(.(pad_left, pad_top)), font_size, text.color);
             }
         }
 
@@ -258,6 +277,24 @@ MeasureTextF :: (text: *u8, fontSize: f32) -> {
         spacing := fontSize / 10;
         rl.MeasureTextEx(font, text, fontSize, spacing).x
     } else 0
+}
+
+Sprite :: struct {
+    texture: *rl.Texture2D;
+    source: Rectangle;
+}
+
+DrawSprite :: (
+    sprite: Sprite,
+    position: Vector2,
+    size: ?Vector2 = null,
+    origin := Vector2.(0, 0),
+    rotation: f32 = 0,
+    tint := rl.WHITE
+) -> {
+    size := size orelse .(libc.fabsf(sprite.source.width), libc.fabsf(sprite.source.height));
+    dest := Rectangle.(position.x, position.y, size.x, size.y);
+    rl.DrawTexturePro(sprite.texture.*, sprite.source, dest, origin, rotation, tint)
 }
 
 CellPos.eq :: (p: CellPos, other: CellPos) -> p.x == other.x and p.y == other.y;
@@ -308,6 +345,17 @@ Grid.inc_surrounding :: (g: *mut Grid, x: u32, y: u32) -> {
     if x < g.*.columns - 1 and y > 0             g.get_cell_mut(.(x + 1, y - 1)).inc_num();
     if x < g.*.columns - 1                       g.get_cell_mut(.(x + 1, y    )).inc_num();
     if x < g.*.columns - 1 and y < g.*.rows - 1  g.get_cell_mut(.(x + 1, y + 1)).inc_num();
+}
+
+Grid.reveal_all :: (g: *mut Grid) -> {
+    for c in g.*.cells.data.&mut do c.*.state = .Open;
+}
+
+Grid.reveal_mines :: (g: *mut Grid) -> {
+    for c in g.*.cells.data.&mut switch c.*.kind {
+        .Mine :> c.*.state = .Open;
+        .Number :> {}
+    }
 }
 
 Grid.print :: (g: Grid) -> {
