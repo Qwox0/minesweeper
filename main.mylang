@@ -2,17 +2,17 @@ std :: #import "std";
 libc :: #import "libc";
 rl :: #import "./vendor/raylib/raylib.mylang";
 rm :: #import "./vendor/raylib/raymath.mylang";
+rlgl :: #import "./vendor/raylib/rlgl.mylang";
 Vector2 :: rl.Vector2;
 Rectangle :: rl.Rectangle;
 
 DEV :: true;
 
 Grid :: struct {
-    // Config
     rows: u32;
     columns: u32;
     mine_count: u32;
-
+    hidden_mines: u32;
     cells: Cells;
 
     destroy :: (g: Grid) -> g.cells.destroy();
@@ -32,17 +32,41 @@ Cell :: struct {
 
 CellPos :: struct { x: u32, y: u32 };
 
-Cells.new_uninit :: (count: uint, alloc: std.mem.Allocator) -> ?Cells {
+Cells.new_uninit :: (count: u32, alloc: std.mem.Allocator) -> ?Cells {
+    count := count.as(uint);
     buf := alloc.alloc(count * #sizeof(Cell), #alignof(Cell)) orelse return null;
     Cells.{ data=.{ ptr=buf.as(*mut Cell), len=count }, alloc }
 }
 
 Grid.new_empty :: (rows: u32, columns: u32, alloc: std.mem.Allocator) -> ?Grid {
-    cells := Cells.new_uninit(xx rows * columns, alloc) orelse return null;
+    cells := Cells.new_uninit(rows * columns, alloc) orelse return null;
     for idx in 0..cells.data.len do cells.data[idx] = .{ kind = .Number(0) };
 
-    Grid.{ rows, columns, mine_count = 0, cells }
+    Grid.{ rows, columns, mine_count = 0, hidden_mines = 0, cells }
 }
+
+Grid.new_random :: (rows: u32, columns: u32, mine_count: u32, alloc: std.mem.Allocator) -> {
+    std.assert(rows > 0 and columns > 0);
+    std.assert(mine_count <= rows * columns);
+    mut grid := Grid.new_empty(rows, columns, alloc) orelse return null;
+
+    while grid.mine_count != mine_count {
+        x := libc.rand().as(u32) % columns;
+        y := libc.rand().as(u32) % rows;
+        cell := grid.&mut.get_cell_mut(.(x, y));
+        switch cell.*.kind { .Mine :> continue } else {};
+        cell.*.kind = .Mine;
+        grid.mine_count += 1;
+        grid.&mut.inc_surrounding(x, y);
+    }
+
+    grid.hidden_mines = grid.mine_count;
+
+    grid
+}
+
+BRIGHT_RED :: rl.Color.(255, 0, 0, 255);
+static num_colors: [9]rl.Color = .[rl.BLANK, rl.BLUE, rl.DARKGREEN, BRIGHT_RED, rl.DARKBLUE, rl.MAROON, rl.SKYBLUE, rl.BLACK, rl.GRAY];
 
 main :: -> {
     mut buf: [1 * 1024 * 1024]u8;
@@ -59,8 +83,11 @@ main :: -> {
     rl.SetExitKey(.NULL);
     rl.SetTargetFPS(60);
 
-    grid := Grid.new_empty(10, 10, alloc) orelse std.panic("oom");
+    //mut grid := Grid.new_random(10, 10, 16, alloc) orelse std.panic("oom");
+    mut grid := Grid.new_random(10, 10, 50, alloc) orelse std.panic("oom");
     defer grid.destroy();
+
+    grid.print();
 
     while not rl.WindowShouldClose() {
         screen: struct { width: i32, height: i32 } = .(
@@ -87,7 +114,7 @@ main :: -> {
         mouse_delta := rl.GetMouseDelta();
 
         cell_and_gap_size := Vector2.splat(cell_size + CELL_GAP);
-        hovered_cell := if rl.CheckCollisionPointRec(mouse_pos, grid_content) {
+        hovered_cell_pos := if rl.CheckCollisionPointRec(mouse_pos, grid_content) {
             mouse_posspace := mouse_pos.sub(grid_content.pos()).div(cell_and_gap_size);
             gap_posspace := CELL_GAP_V.div(cell_and_gap_size);
 
@@ -100,13 +127,25 @@ main :: -> {
             if is_on_border then null else Some(CellPos.(x.as(u32), y.as(u32)))
         } else null;
 
-        { // Mouse clicks
+        // Game logic
+        switch hovered_cell_pos { Some :> {
+            hovered_cell := grid.&mut.get_cell_mut(hovered_cell_pos);
             if rl.IsMouseButtonPressed(.LEFT) {
-                std.println("MouseButtonPressed(.LEFT)");
+                switch hovered_cell.*.state {
+                    .Open :> {},
+                    .Closed :> hovered_cell.*.state = .Open;
+                    .Flagged :> hovered_cell.*.state = .Closed;
+                }
+                grid.print();
             } else if rl.IsMouseButtonPressed(.RIGHT) {
-                std.println("MouseButtonPressed(.RIGHT)");
+                switch hovered_cell.*.state {
+                    .Open :> {},
+                    .Closed :> hovered_cell.*.state = .Flagged;
+                    .Flagged :> hovered_cell.*.state = .Closed;
+                }
+                grid.print();
             }
-        }
+        }} else {}
 
         // ----------------- Draw -----------------
         rl.BeginDrawing();
@@ -136,34 +175,92 @@ main :: -> {
 
             { // Cell borders
                 std.assert(grid.rows > 0);
-                for idx in 0..(grid.rows - 1) {
+                for idx in 0..grid.rows - 1 {
                     rl.DrawRectangleV(
-                        .(cell_size + idx.as(f32) * (CELL_GAP + cell_size), 0),
+                        .(cell_size + idx.as(f32) * cell_and_gap_size.x, 0),
                         .(CELL_GAP, grid_content_size),
                         CELL_GAP_COLOR,
                     );
                 }
                 std.assert(grid.columns > 0);
-                for idx in 0..(grid.columns - 1) {
+                for idx in 0..grid.columns - 1 {
                     rl.DrawRectangleV(
-                        .(0, cell_size + idx.as(f32) * (CELL_GAP + cell_size)),
+                        .(0, cell_size + idx.as(f32) * cell_and_gap_size.y),
                         .(grid_content_size, CELL_GAP),
                         CELL_GAP_COLOR,
                     );
                 }
             }
 
-            switch hovered_cell {
-                Some :> rl.DrawRectangleV(
-                    hovered_cell.as_vec2().mul(cell_and_gap_size),
-                    .splat(cell_size),
-                    CELL_HOVER_COLOR,
-                );
-            } else {}
+            for row_idx in 0..grid.rows for col_idx in 0..grid.columns {
+                offset := Vector2.(col_idx.as(f32), row_idx.as(f32)).mul(cell_and_gap_size);
+                pos := CellPos.(col_idx, row_idx);
+                cell := grid.&.get_cell(pos);
+                switch cell.state {
+                    .Closed :> {
+                        is_hovered := switch hovered_cell_pos {
+                            Some :> pos.eq(hovered_cell_pos);
+                        } else false;
+                        color := if is_hovered then CELL_HOVER_COLOR else rl.RAYWHITE;
+                        rl.DrawRectangleV(offset, .splat(cell_size), color);
+                        continue;
+                    },
+                    .Open :> {},
+                    .Flagged :> {/* TODO */},
+                }
+                kind := cell.kind;
+                text: struct { cstr: *u8, color: rl.Color } = switch kind {
+                    .Mine :> .{ cstr="*".ptr, color=rl.BLACK }, // TODO
+                    .Number :> {
+                        mut text_buf: [8]u8;
+                        text_buf := text_buf[..]mut;
+                        wrote := libc.snprintf(text_buf.ptr, text_buf.len, "%d".ptr, kind);
+                        std.assert(wrote.as(uint) < text_buf.len);
+                        std.assert(kind.as(uint) <= num_colors[..].len);
+                        .{ cstr=text_buf.ptr, color=num_colors[kind] }
+                    },
+                };
+                font_size := 0.85 * cell_size;
+                text_width := MeasureTextF(text.cstr, font_size);
+                pad_left := (cell_size - text_width) / 2;
+                // MeasureTextEx returns the font size, not the size of a glyph
+                // => MeasureTextEx cannot be used to vertically center glyphs
+                // The default font has a total height of 10 pixels, a one pixel gap above numbers
+                // and a 2 pixel gap below numbers.
+                pad_top := (cell_size - font_size * 0.9) / 2;
+                DrawTextV(text.cstr, offset.add(.(pad_left, pad_top)), font_size, text.color);
+            }
         }
+
+        /*
+        { // Debug Font
+            PAD :: 10;
+            font_size::100;
+            rl.DrawRectangle(PAD, PAD, 2000, font_size, rl.GRAY);
+            text := "q|l18*";
+            rl.DrawText(text.ptr, PAD, PAD, font_size, rl.GREEN);
+        }
+        */
     }
 }
 
+DrawTextV :: (text: *u8, position: Vector2, fontSize: f32, color: rl.Color) -> {
+    font := rl.GetFontDefault();
+    if (font.texture.id != 0) {
+        spacing := fontSize / 10;
+        rl.DrawTextEx(font, text, position, fontSize, spacing, color);
+    }
+}
+
+MeasureTextF :: (text: *u8, fontSize: f32) -> {
+    font := rl.GetFontDefault();
+    if (font.texture.id != 0) {
+        spacing := fontSize / 10;
+        rl.MeasureTextEx(font, text, fontSize, spacing).x
+    } else 0
+}
+
+CellPos.eq :: (p: CellPos, other: CellPos) -> p.x == other.x and p.y == other.y;
 CellPos.as_vec2 :: (p: CellPos) -> Vector2.(p.x.as(f32), p.y.as(f32));
 
 Vector2.splat :: (val: f32) -> Vector2.(val, val);
@@ -175,3 +272,62 @@ Vector2.div :: rm.Vector2Divide;
 
 Rectangle.pos :: (r: Rectangle) -> Vector2.(r.x, r.y);
 Rectangle.size :: (r: Rectangle) -> Vector2.(r.width, r.height);
+
+Grid.get_cell :: (g: *Grid, pos: CellPos) -> {
+    std.assert(pos.x < g.*.columns);
+    std.assert(pos.y < g.*.rows);
+    idx := (pos.y * g.*.columns + pos.x).as(uint);
+    std.assert(idx < g.*.cells.data.len);
+    g.*.cells.data[idx]
+}
+
+Grid.get_cell_mut :: (g: *mut Grid, pos: CellPos) -> {
+    std.assert(pos.x < g.*.columns);
+    std.assert(pos.y < g.*.rows);
+    idx := (pos.y * g.*.columns + pos.x).as(uint);
+    std.assert(idx < g.*.cells.data.len);
+    g.*.cells.data[idx].&mut
+}
+
+Cell.inc_num :: (c: *mut Cell) -> {
+    kind := c.*.kind.&mut;
+    switch kind {
+        .Mine :> {},
+        .Number :> kind.* += 1;
+    }
+}
+
+Grid.inc_surrounding :: (g: *mut Grid, x: u32, y: u32) -> {
+    if x > 0               and y > 0             g.get_cell_mut(.(x - 1, y - 1)).inc_num();
+    if x > 0                                     g.get_cell_mut(.(x - 1, y    )).inc_num();
+    if x > 0               and y < g.*.rows - 1  g.get_cell_mut(.(x - 1, y + 1)).inc_num();
+
+    if                         y > 0             g.get_cell_mut(.(x    , y - 1)).inc_num();
+    if                         y < g.*.rows - 1  g.get_cell_mut(.(x    , y + 1)).inc_num();
+
+    if x < g.*.columns - 1 and y > 0             g.get_cell_mut(.(x + 1, y - 1)).inc_num();
+    if x < g.*.columns - 1                       g.get_cell_mut(.(x + 1, y    )).inc_num();
+    if x < g.*.columns - 1 and y < g.*.rows - 1  g.get_cell_mut(.(x + 1, y + 1)).inc_num();
+}
+
+Grid.print :: (g: Grid) -> {
+    libc.printf("grid %dx%d; mines: %d (%d left)\n".ptr, g.columns, g.rows, g.mine_count, g.hidden_mines);
+    for row_idx in 0..g.rows {
+        for col_idx in 0..g.columns {
+            std.assert((row_idx * g.columns + col_idx).as(u64) < g.cells.data.len);
+            cell := g.cells.data[row_idx * g.columns + col_idx];
+            switch cell.state {
+                .Closed  :> libc.printf("%c[0;2m".ptr, 0x1b);  // faint
+                .Open    :> libc.printf("%c[0m".ptr, 0x1b);    // normal
+                .Flagged :> libc.printf("%c[0;32m".ptr, 0x1b); // green
+            }
+            kind := cell.kind;
+            switch kind {
+                .Mine :> libc.printf("* ".ptr);
+                .Number :> libc.printf("%d ".ptr, kind);
+            };
+        }
+        libc.printf("%c[0m\n".ptr, 0x1b);
+    }
+}
+
