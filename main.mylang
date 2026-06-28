@@ -12,7 +12,6 @@ Grid :: struct {
     rows: u32;
     columns: u32;
     mine_count: u32;
-    hidden_mines: u32;
     cells: Cells;
 
     destroy :: (g: Grid) -> g.cells.destroy();
@@ -42,7 +41,7 @@ Grid.new_empty :: (rows: u32, columns: u32, alloc: std.mem.Allocator) -> ?Grid {
     cells := Cells.new_uninit(rows * columns, alloc) orelse return null;
     for idx in 0..cells.data.len do cells.data[idx] = .{ kind = .Number(0) };
 
-    Grid.{ rows, columns, mine_count = 0, hidden_mines = 0, cells }
+    Grid.{ rows, columns, mine_count = 0, cells }
 }
 
 Grid.new_random :: (rows: u32, columns: u32, mine_count: u32, alloc: std.mem.Allocator) -> {
@@ -51,16 +50,16 @@ Grid.new_random :: (rows: u32, columns: u32, mine_count: u32, alloc: std.mem.All
     mut grid := Grid.new_empty(rows, columns, alloc) orelse return null;
 
     while grid.mine_count != mine_count {
-        x := libc.rand().as(u32) % columns;
-        y := libc.rand().as(u32) % rows;
-        cell := grid.&mut.get_cell_mut(.(x, y));
+        pos := CellPos.{
+            x = libc.rand().as(u32) % columns,
+            y = libc.rand().as(u32) % rows,
+        };
+        cell := grid.&mut.get_cell_mut(pos);
         switch cell.*.kind { .Mine :> continue } else {};
         cell.*.kind = .Mine;
         grid.mine_count += 1;
-        grid.&mut.inc_surrounding(x, y);
+        grid.&mut.inc_surrounding(pos);
     }
-
-    grid.hidden_mines = grid.mine_count;
 
     grid
 }
@@ -78,12 +77,32 @@ main :: -> {
     rl.SetConfigFlags(.WINDOW_RESIZABLE);
 
     rl.InitWindow(1000, 1000, "OpenGL Triangle".ptr);
+    //rl.InitWindow(1000, 1000, "Minesweeper".ptr);
     defer rl.CloseWindow();
 
     rl.SetExitKey(.NULL);
     rl.SetTargetFPS(60);
 
-    // ----------------- sprites -----------------
+    // ----------------- Grid init -----------------
+    grid_init_start := rl.GetTime();
+    libc.srand(libc.time(null).as(u32));
+    mut grid := Grid.new_random(10, 10, 16, alloc) orelse std.panic("oom");
+    //mut grid := Grid.new_random(10, 10, 50, alloc) orelse std.panic("oom");
+    defer grid.destroy();
+
+    grid_init_took := rl.GetTime() - grid_init_start;
+    libc.printf("grid init took %fus\n".ptr, (grid_init_took)*1000*1000); // μ
+
+    //grid.&mut.reveal_all();
+    grid.print();
+
+    // ----------------- Game state -----------------
+    mut game_state: enum {
+        Active,
+        Lost(struct { clicked_mine_pos: CellPos }),
+    } = .Active;
+
+    // ----------------- Sprites -----------------
     flag_mine_texture := rl.LoadTexture("./assets/VectorMinesweeper/VectorMinesweeperFlagMine.png".ptr);
     defer rl.UnloadTexture(flag_mine_texture);
     flag_mine_sprite_width := flag_mine_texture.width.as(f32);
@@ -93,38 +112,26 @@ main :: -> {
     mine_sprite := Sprite.(&flag_mine_texture,
         .{ x=0, y=flag_mine_sprite_height, width=flag_mine_sprite_width, height=flag_mine_sprite_height });
 
-    // ----------------- Grid init -----------------
-    grid_init_start := rl.GetTime();
-    //mut grid := Grid.new_random(10, 10, 16, alloc) orelse std.panic("oom");
-    mut grid := Grid.new_random(10, 10, 50, alloc) orelse std.panic("oom");
-    defer grid.destroy();
-
-    grid_init_took := rl.GetTime() - grid_init_start;
-    libc.printf("grid init took %fus\n".ptr, (grid_init_took)*1000*1000); // μ
-
-    //grid.&mut.reveal_all();
-    grid.print();
-
     // ----------------- Loop -----------------
     while not rl.WindowShouldClose() {
-        screen: struct { width: i32, height: i32 } = .(
-            rl.GetScreenWidth(),
-            rl.GetScreenHeight(),
-        );
+        screen_size := Vector2.(rl.GetScreenWidth().as(f32), rl.GetScreenHeight().as(f32));
 
-        GRID_PADDING :: 20;
+        SCREEN_PADDING :: 20;
         GRID_BORDER_WIDTH :: 12;
         CELL_GAP :: 6;
         CELL_GAP_V := Vector2.splat(CELL_GAP);
+        UI_WIDTH :: 500;
 
-        grid_size_with_pad := if screen.width < screen.height then screen.width else screen.height;
+        grid_size_with_pad := min(screen_size.x - UI_WIDTH - SCREEN_PADDING, screen_size.y);
         std.assert(grid.rows == grid.columns, "TODO: grid.rows != grid.columns");
-        grid_size := grid_size_with_pad - 2 * GRID_PADDING;
-        grid_offset: i32 = GRID_PADDING;
+        grid_size := grid_size_with_pad - 2 * SCREEN_PADDING;
+        grid_offset: f32 = SCREEN_PADDING;
 
-        grid_content_size := grid_size.as(f32) - 2 * GRID_BORDER_WIDTH;
-        grid_content_offset := grid_offset.as(f32) + GRID_BORDER_WIDTH;
-        grid_content := Rectangle.(grid_content_offset, grid_content_offset, grid_content_size, grid_content_size);
+        grid_content_size := grid_size - 2 * GRID_BORDER_WIDTH;
+        grid_content := Rectangle.of_vectors(
+            .splat(grid_offset + GRID_BORDER_WIDTH),
+            .splat(grid_content_size),
+        );
         cell_size := (grid_content_size + CELL_GAP) / grid.rows.as(f32) - CELL_GAP;
 
         mouse_pos := rl.GetMousePosition();
@@ -145,12 +152,23 @@ main :: -> {
         } else null;
 
         // Game logic
-        switch hovered_cell_pos { Some :> {
+        is_game_active := switch game_state { .Active :> true } else false;
+        switch hovered_cell_pos { Some :> if is_game_active {
             hovered_cell := grid.&mut.get_cell_mut(hovered_cell_pos);
             if rl.IsMouseButtonPressed(.LEFT) {
                 switch hovered_cell.*.state {
                     .Open :> {},
-                    .Closed :> hovered_cell.*.state = .Open;
+                    .Closed :> {
+                        hovered_cell.*.state = .Open;
+                        kind := hovered_cell.*.kind;
+                        switch kind {
+                            .Mine :> {
+                                game_state = .Lost(.{ clicked_mine_pos=hovered_cell_pos });
+                                grid.&mut.reveal_mines();
+                            },
+                            .Number :> grid.&mut.reveal_number(hovered_cell_pos);
+                        }
+                    };
                     .Flagged :> hovered_cell.*.state = .Closed;
                 }
                 grid.print();
@@ -176,20 +194,20 @@ main :: -> {
         rl.DrawRectangleRec(grid_content, CELL_BG_COLOR);
 
         { // Grid border
-            rl.BeginMode2D(.{ offset=.splat(grid_offset.as(f32)), target=.(0,0), rotation=0, zoom=1 });
+            rl.BeginMode2D(.{ offset=.splat(grid_offset), target=.(0,0), rotation=0, zoom=1 });
             defer rl.EndMode2D();
 
-            rl.DrawRectangle(0, 0, grid_size, GRID_BORDER_WIDTH, CELL_GAP_COLOR);
-            rl.DrawRectangle(0, 0, GRID_BORDER_WIDTH, grid_size, CELL_GAP_COLOR);
-            rl.DrawRectangle(0, grid_size - GRID_BORDER_WIDTH, grid_size, GRID_BORDER_WIDTH, CELL_GAP_COLOR);
-            rl.DrawRectangle(grid_size - GRID_BORDER_WIDTH, 0, GRID_BORDER_WIDTH, grid_size, CELL_GAP_COLOR);
+            rl.DrawRectangleV(.(0, 0), .(grid_size, GRID_BORDER_WIDTH), CELL_GAP_COLOR);
+            rl.DrawRectangleV(.(0, 0), .(GRID_BORDER_WIDTH, grid_size), CELL_GAP_COLOR);
+            rl.DrawRectangleV(.(0, grid_size - GRID_BORDER_WIDTH), .(grid_size, GRID_BORDER_WIDTH), CELL_GAP_COLOR);
+            rl.DrawRectangleV(.(grid_size - GRID_BORDER_WIDTH, 0), .(GRID_BORDER_WIDTH, grid_size), CELL_GAP_COLOR);
         }
 
         BOMB_EXPLODED_BG :: rl.Color.(250, 95, 103, 255);
 
         { // Grid content
             //rl.BeginMode2D(.{ offset=.splat(grid_size_with_pad.as(f32) / 2), target=.splat(grid_content_size/2), rotation=30, zoom=1 });
-            rl.BeginMode2D(.{ offset=.splat(grid_content_offset), target=.(0,0), rotation=0, zoom=1 });
+            rl.BeginMode2D(.{ offset=grid_content.pos(), target=.(0,0), rotation=0, zoom=1 });
             defer rl.EndMode2D();
 
             { // Cell borders
@@ -197,7 +215,7 @@ main :: -> {
                 for idx in 0..grid.rows - 1 {
                     rl.DrawRectangleV(
                         .(cell_size + idx.as(f32) * cell_and_gap_size.x, 0),
-                        .(CELL_GAP, grid_content_size),
+                        .(CELL_GAP, grid_content.height),
                         CELL_GAP_COLOR,
                     );
                 }
@@ -205,11 +223,18 @@ main :: -> {
                 for idx in 0..grid.columns - 1 {
                     rl.DrawRectangleV(
                         .(0, cell_size + idx.as(f32) * cell_and_gap_size.y),
-                        .(grid_content_size, CELL_GAP),
+                        .(grid_content.width, CELL_GAP),
                         CELL_GAP_COLOR,
                     );
                 }
             }
+
+            switch game_state {
+                .Lost :> {
+                    offset := game_state.clicked_mine_pos.as_vec2().mul(cell_and_gap_size);
+                    rl.DrawRectangleV(offset, .splat(cell_size), BOMB_EXPLODED_BG);
+                },
+            } else {}
 
             for row_idx in 0..grid.rows for col_idx in 0..grid.columns {
                 pos := CellPos.(col_idx, row_idx);
@@ -219,7 +244,7 @@ main :: -> {
                     is_hovered := switch hovered_cell_pos {
                         Some :> pos.eq(hovered_cell_pos);
                     } else false;
-                    color := if is_hovered then CELL_HOVER_BG else rl.RAYWHITE;
+                    color := if is_hovered and is_game_active then CELL_HOVER_BG else rl.RAYWHITE;
                     rl.DrawRectangleV(offset, .splat(cell_size), color);
                     if cell.state == .Flagged {
                         DrawSprite(flag_sprite, offset, Some(.splat(cell_size)));
@@ -249,6 +274,18 @@ main :: -> {
                     },
                 };
             }
+        }
+
+        { // UI
+            rl.BeginMode2D(.{ offset=.(grid_size_with_pad.as(f32), SCREEN_PADDING), target=.(0, 0), rotation=0, zoom=1 });
+            defer rl.EndMode2D();
+
+            UI_PAD :: 10;
+            font_size::100;
+
+            rl.DrawRectangleV(.(0, 0), .(UI_WIDTH, grid_size.as(f32)), CELL_BG_COLOR);
+
+            DrawTextV("Hello World".ptr, .splat(UI_PAD), font_size, rl.GREEN);
         }
 
         /*
@@ -307,6 +344,7 @@ Vector2.sub :: rm.Vector2Subtract;
 Vector2.mul :: rm.Vector2Multiply;
 Vector2.div :: rm.Vector2Divide;
 
+Rectangle.of_vectors :: (pos: Vector2, size: Vector2) -> Rectangle.(pos.x, pos.y, size.x, size.y);
 Rectangle.pos :: (r: Rectangle) -> Vector2.(r.x, r.y);
 Rectangle.size :: (r: Rectangle) -> Vector2.(r.width, r.height);
 
@@ -326,6 +364,21 @@ Grid.get_cell_mut :: (g: *mut Grid, pos: CellPos) -> {
     g.*.cells.data[idx].&mut
 }
 
+Grid.for_each_surrounding :: (g: *mut Grid, center: CellPos, f: (c: *mut Cell, pos: CellPos, g: *mut Grid) -> void) -> {
+    x := center.x;
+    y := center.y;
+    if x > 0               and y > 0             { pos := CellPos.(x - 1, y - 1); f(g.get_cell_mut(pos), pos, g) }
+    if x > 0                                     { pos := CellPos.(x - 1, y    ); f(g.get_cell_mut(pos), pos, g) }
+    if x > 0               and y < g.*.rows - 1  { pos := CellPos.(x - 1, y + 1); f(g.get_cell_mut(pos), pos, g) }
+
+    if                         y > 0             { pos := CellPos.(x    , y - 1); f(g.get_cell_mut(pos), pos, g) }
+    if                         y < g.*.rows - 1  { pos := CellPos.(x    , y + 1); f(g.get_cell_mut(pos), pos, g) }
+
+    if x < g.*.columns - 1 and y > 0             { pos := CellPos.(x + 1, y - 1); f(g.get_cell_mut(pos), pos, g) }
+    if x < g.*.columns - 1                       { pos := CellPos.(x + 1, y    ); f(g.get_cell_mut(pos), pos, g) }
+    if x < g.*.columns - 1 and y < g.*.rows - 1  { pos := CellPos.(x + 1, y + 1); f(g.get_cell_mut(pos), pos, g) }
+}
+
 Cell.inc_num :: (c: *mut Cell) -> {
     kind := c.*.kind.&mut;
     switch kind {
@@ -334,21 +387,22 @@ Cell.inc_num :: (c: *mut Cell) -> {
     }
 }
 
-Grid.inc_surrounding :: (g: *mut Grid, x: u32, y: u32) -> {
-    if x > 0               and y > 0             g.get_cell_mut(.(x - 1, y - 1)).inc_num();
-    if x > 0                                     g.get_cell_mut(.(x - 1, y    )).inc_num();
-    if x > 0               and y < g.*.rows - 1  g.get_cell_mut(.(x - 1, y + 1)).inc_num();
-
-    if                         y > 0             g.get_cell_mut(.(x    , y - 1)).inc_num();
-    if                         y < g.*.rows - 1  g.get_cell_mut(.(x    , y + 1)).inc_num();
-
-    if x < g.*.columns - 1 and y > 0             g.get_cell_mut(.(x + 1, y - 1)).inc_num();
-    if x < g.*.columns - 1                       g.get_cell_mut(.(x + 1, y    )).inc_num();
-    if x < g.*.columns - 1 and y < g.*.rows - 1  g.get_cell_mut(.(x + 1, y + 1)).inc_num();
+Grid.inc_surrounding :: (g: *mut Grid, center: CellPos) -> {
+    g.for_each_surrounding(center, (c, _pos, _g) -> c.inc_num());
 }
 
 Grid.reveal_all :: (g: *mut Grid) -> {
     for c in g.*.cells.data.&mut do c.*.state = .Open;
+}
+
+Grid.reveal_number :: (g: *mut Grid, pos: CellPos) -> void {
+    cell := g.get_cell_mut(pos);
+    cell.*.state = .Open;
+    kind := cell.*.kind;
+    num := switch kind { .Number :> kind } else std.panic("expected number");
+    if num == 0 then g.for_each_surrounding(pos, (c, pos, g) -> {
+        if c.*.state != .Open then g.reveal_number(pos);
+    });
 }
 
 Grid.reveal_mines :: (g: *mut Grid) -> {
@@ -359,7 +413,7 @@ Grid.reveal_mines :: (g: *mut Grid) -> {
 }
 
 Grid.print :: (g: Grid) -> {
-    libc.printf("grid %dx%d; mines: %d (%d left)\n".ptr, g.columns, g.rows, g.mine_count, g.hidden_mines);
+    libc.printf("grid %dx%d; mines: %d (%d left)\n".ptr, g.columns, g.rows, g.mine_count);
     for row_idx in 0..g.rows {
         for col_idx in 0..g.columns {
             std.assert((row_idx * g.columns + col_idx).as(u64) < g.cells.data.len);
@@ -379,3 +433,4 @@ Grid.print :: (g: Grid) -> {
     }
 }
 
+min :: (a: f32, b: f32) -> if b < a then b else a;
