@@ -16,10 +16,28 @@ Grid :: struct {
     columns: u32;
     cells: []mut Cell;
 
-    mine_count: u32;
+    mine_count: i32;
+    opened_cell_count: i32 = 0;
     flag_count: i32 = 0;
+    incorrect_flag_count: i32 = 0;
+
+    status: enum {
+        Active,
+        Won,
+        Lost(struct { clicked_mine_pos: CellPos }),
+    } = .Active;
 
     destroy :: (g: Grid, alloc: std.mem.Allocator) -> alloc.free(g.cells.ptr);
+
+    reset :: (g: *mut Grid) -> {
+        for c in g.*.cells.&mut do c.*.state = .Closed;
+        g.{
+            rows = g.*.rows,
+            columns = g.*.columns,
+            cells = g.*.cells,
+            mine_count = g.*.mine_count,
+        }
+    }
 }
 
 Cell :: struct {
@@ -43,11 +61,11 @@ Grid.new_empty :: (rows: u32, columns: u32, alloc: std.mem.Allocator) -> ?Grid {
 }
 
 Grid.new_random :: (rows: u32, columns: u32, mine_count: u32, alloc: std.mem.Allocator) -> {
-    std.assert(rows > 0 and columns > 0);
-    std.assert(mine_count <= rows * columns);
+    std.assert(rows > 0 and columns > 0, "need positive rows, columns");
+    std.assert(mine_count <= rows * columns, "mine_count <= rows * columns");
     mut grid := Grid.new_empty(rows, columns, alloc) orelse return null;
 
-    while grid.mine_count != mine_count {
+    while grid.mine_count != mine_count.as(i32) {
         pos := CellPos.{
             x = libc.rand().as(u32) % columns,
             y = libc.rand().as(u32) % rows,
@@ -67,10 +85,6 @@ static num_colors: [9]rl.Color = .[rl.BLANK, rl.BLUE, rl.DARKGREEN, BRIGHT_RED, 
 
 GameState :: struct {
     grid: Grid;
-    status: enum {
-        Active,
-        Lost(struct { clicked_mine_pos: CellPos }),
-    } = .Active;
 
     alloc: std.mem.Allocator;
 
@@ -185,7 +199,66 @@ main :: -> {
         defer rl.EndDrawing();
         rl.ClearBackground(rl.RAYWHITE);
 
-        // ----------------- Game logic + UI (affects state) -----------------
+        // ----------------- Game logic -----------------
+
+        is_game_active := switch grid.status { .Active :> true } else false;
+        switch hovered_cell_pos { Some :> if is_game_active {
+            grid := game_state.grid.&mut;
+            hovered_cell := grid.get_cell_mut(hovered_cell_pos);
+            Action :: enum { None, OpenCell, FlagCell, UnflagCell };
+            action: Action = if rl.IsMouseButtonPressed(.LEFT) {
+                switch hovered_cell.*.state {
+                    .Open :> .None,
+                    .Closed :> .OpenCell,
+                    .Flagged :> .UnflagCell,
+                }
+            } else if rl.IsMouseButtonPressed(.RIGHT) {
+                switch hovered_cell.*.state {
+                    .Open :> .None,
+                    .Closed :> .FlagCell,
+                    .Flagged :> .UnflagCell,
+                }
+            } else .None;
+
+            switch action {
+                .None :> {},
+                .OpenCell :> {
+                    grid.reveal_cell(hovered_cell_pos);
+                    number_cell_count := (grid.*.rows * grid.*.columns).as(i32) - grid.*.mine_count;
+                    std.assert(grid.*.opened_cell_count <= number_cell_count, "opened_cell_count <= number_cell_count");
+                    if grid.*.opened_cell_count == number_cell_count then {
+                        grid.*.status = .Won;
+                    }
+                    grid.*.print();
+                },
+                .FlagCell :> {
+                    hovered_cell.*.state = .Flagged;
+                    grid.*.flag_count += 1;
+                    switch hovered_cell.*.kind {
+                        .Mine :> {
+                            std.assert(grid.*.incorrect_flag_count >= 0, "incorrect_flag_count >= 0");
+                            if grid.*.incorrect_flag_count == 0 and grid.*.flag_count == grid.*.mine_count {
+                                grid.*.status = .Won;
+                                grid.reveal_non_mines();
+                            }
+                        },
+                        .Number :> grid.*.incorrect_flag_count += 1,
+                    }
+                    grid.*.print();
+                },
+                .UnflagCell :> {
+                    hovered_cell.*.state = .Closed;
+                    grid.*.flag_count -= 1;
+                    switch hovered_cell.*.kind {
+                        .Mine :> {},
+                        .Number :> grid.*.incorrect_flag_count -= 1,
+                    }
+                    grid.*.print();
+                },
+            }
+        }} else {}
+
+        // ----------------- UI (affects state) -----------------
 
         { // UI
             gui.BeginMode2D(.{ offset=.(grid_size_with_pad, SCREEN_PADDING), target=.(0, 0), rotation=0, zoom=1 });
@@ -211,9 +284,8 @@ main :: -> {
                     game_state.grid.print();
                 }
                 if gui.Button.{ pos=.(UI_PAD * 2 + size.x, y), size, text="Restart".ptr, font_size }.draw() {
-                    for c in game_state.grid.cells.&mut do c.*.state = .Closed;
-                    game_state.grid.flag_count = 0;
-                    game_state.status = .Active;
+                    game_state.grid.&mut.reset();
+                    game_state.grid.print();
                 }
 
                 y += size.y + UI_PAD;
@@ -222,14 +294,14 @@ main :: -> {
             {
                 mine_count_text := {
                     wrote := libc.snprintf(frame_arena.pos, frame_arena.&.capacity(), ": %d".ptr, game_state.grid.mine_count);
-                    std.assert(wrote >= 0);
+                    std.assert(wrote >= 0, "wrote >= 0");
                     cstr := frame_arena.pos;
                     frame_arena.&mut.allocator().alloc(wrote.as(uint) + 1, 1);
                     cstr
                 };
                 flag_count_text := {
                     wrote := libc.snprintf(frame_arena.pos, frame_arena.&.capacity(), ": %d".ptr, game_state.grid.flag_count);
-                    std.assert(wrote >= 0);
+                    std.assert(wrote >= 0, "wrote >= 0");
                     cstr := frame_arena.pos;
                     frame_arena.&mut.allocator().alloc(wrote.as(uint) + 1, 1);
                     cstr
@@ -257,48 +329,26 @@ main :: -> {
                     font_size,
                     font_color,
                 );
+
+                y += icon_size.y + UI_PAD;
+            }
+
+            { // Game status text
+                font_size :: 90;
+                rect := Rectangle.(UI_PAD, y, ui_width - 2 * UI_PAD, font_size);
+                switch grid.status {
+                    .Active :> {},
+                    .Won :> {
+                        rl.DrawRectangleRec(rect, rl.LIGHTGRAY);
+                        gui.draw_centered_text("You Win!".ptr, rect, font_size, rl.GREEN);
+                    },
+                    .Lost :> {
+                        rl.DrawRectangleRec(rect, rl.LIGHTGRAY);
+                        gui.draw_centered_text("You Lose!".ptr, rect, font_size, BRIGHT_RED);
+                    },
+                }
             }
         }
-
-        is_game_active := switch game_state.status { .Active :> true } else false;
-        switch hovered_cell_pos { Some :> if is_game_active {
-            grid := game_state.grid.&mut;
-            hovered_cell := grid.get_cell_mut(hovered_cell_pos);
-            if rl.IsMouseButtonPressed(.LEFT) {
-                switch hovered_cell.*.state {
-                    .Open :> {},
-                    .Closed :> {
-                        hovered_cell.*.state = .Open;
-                        kind := hovered_cell.*.kind;
-                        switch kind {
-                            .Mine :> {
-                                game_state.status = .Lost(.{ clicked_mine_pos=hovered_cell_pos });
-                                grid.reveal_mines();
-                            },
-                            .Number :> grid.reveal_number(hovered_cell_pos);
-                        }
-                    };
-                    .Flagged :> {
-                        game_state.grid.flag_count -= 1;
-                        hovered_cell.*.state = .Closed;
-                    },
-                }
-                grid.*.print();
-            } else if rl.IsMouseButtonPressed(.RIGHT) {
-                switch hovered_cell.*.state {
-                    .Open :> {},
-                    .Closed :> {
-                        game_state.grid.flag_count += 1;
-                        hovered_cell.*.state = .Flagged;
-                    },
-                    .Flagged :> {
-                        game_state.grid.flag_count -= 1;
-                        hovered_cell.*.state = .Closed;
-                    },
-                }
-                grid.*.print();
-            }
-        }} else {}
 
         // ----------------- Draw (doesn't affect state) -----------------
 
@@ -322,7 +372,7 @@ main :: -> {
             defer rl.EndMode2D();
 
             { // Cell borders
-                std.assert(grid.rows > 0);
+                std.assert(grid.rows > 0, "rows > 0");
                 for idx in 0..grid.rows - 1 {
                     rl.DrawRectangleV(
                         .(cell_size + idx.as(f32) * cell_and_gap_size.x, 0),
@@ -330,7 +380,7 @@ main :: -> {
                         CELL_GAP_COLOR,
                     );
                 }
-                std.assert(grid.columns > 0);
+                std.assert(grid.columns > 0, "columns > 0");
                 for idx in 0..grid.columns - 1 {
                     rl.DrawRectangleV(
                         .(0, cell_size + idx.as(f32) * cell_and_gap_size.y),
@@ -340,7 +390,7 @@ main :: -> {
                 }
             }
 
-            status := game_state.status;
+            status := grid.status;
             switch status {
                 .Lost :> {
                     offset := status.clicked_mine_pos.as_vec2().mul(cell_and_gap_size);
@@ -372,10 +422,10 @@ main :: -> {
                         mut text_buf: [8]u8;
                         text_buf := text_buf[..]mut;
                         wrote := libc.snprintf(text_buf.ptr, text_buf.len, "%d".ptr, kind);
-                        std.assert(wrote.as(uint) < text_buf.len);
-                        std.assert(kind.as(uint) <= num_colors[..].len);
+                        std.assert(wrote.as(uint) < text_buf.len, "wrote < text_buf.len");
+                        std.assert(kind.as(uint) <= num_colors[..].len, "num_colors[kind] out of bounds");
                         font_size := 0.85 * cell_size;
-                        gui.draw_centered_text(.of_vectors(offset, .splat(cell_size)), text_buf.ptr, font_size, num_colors[kind]);
+                        gui.draw_centered_text(text_buf.ptr, .of_vectors(offset, .splat(cell_size)), font_size, num_colors[kind]);
                     },
                 };
             }
@@ -443,29 +493,50 @@ Grid.reveal_all :: (g: *mut Grid) -> {
     for c in g.*.cells.&mut do c.*.state = .Open;
 }
 
-Grid.reveal_number :: (g: *mut Grid, pos: CellPos) -> void {
+Grid.reveal_cell :: (g: *mut Grid, pos: CellPos) -> void {
     cell := g.get_cell_mut(pos);
-    cell.*.state = .Open;
+    if cell.*.state != .Open {
+        cell.*.state = .Open;
+        g.*.opened_cell_count += 1;
+    }
     kind := cell.*.kind;
-    num := switch kind { .Number :> kind } else std.panic("expected number");
-    if num == 0 then g.for_each_surrounding(pos, (c, pos, g) -> {
-        if c.*.state != .Open then g.reveal_number(pos);
-    });
+    switch kind {
+        .Mine :> {
+            g.*.status = .Lost(.{ clicked_mine_pos=pos });
+            g.reveal_mines();
+        },
+        .Number :> if kind == 0 then g.for_each_surrounding(pos, (c, pos, g) -> {
+            std.assert(switch c.*.kind { .Number :> true } else false, "invalid 0 cell");
+            if c.*.state != .Open then g.reveal_cell(pos);
+        }),
+    }
 }
 
 Grid.reveal_mines :: (g: *mut Grid) -> {
     for c in g.*.cells.&mut switch c.*.kind {
-        .Mine :> c.*.state = .Open;
-        .Number :> {}
+        .Mine :> c.*.state = .Open,
+        .Number :> {},
+    }
+}
+
+Grid.reveal_non_mines :: (g: *mut Grid) -> {
+    for c in g.*.cells.&mut switch c.*.kind {
+        .Mine :> {},
+        .Number :> c.*.state = .Open,
     }
 }
 
 Grid.print :: (g: Grid) -> {
-    libc.printf("grid %dx%d; mines: %d\n".ptr, g.columns, g.rows, g.mine_count);
+    libc.printf(
+        "grid %dx%d; mines: %d; opened cells: %d/%d; flags: %d (incorrect: %d)\n".ptr,
+        g.columns, g.rows,
+        g.mine_count,
+        g.opened_cell_count, g.rows * g.columns,
+        g.flag_count, g.incorrect_flag_count,
+    );
     for row_idx in 0..g.rows {
         for col_idx in 0..g.columns {
-            std.assert((row_idx * g.columns + col_idx).as(u64) < g.cells.len);
-            cell := g.cells[row_idx * g.columns + col_idx];
+            cell := g.&.get_cell(.(col_idx, row_idx));
             switch cell.state {
                 .Closed  :> libc.printf("%c[0;2m".ptr, 0x1b);  // faint
                 .Open    :> libc.printf("%c[0m".ptr, 0x1b);    // normal

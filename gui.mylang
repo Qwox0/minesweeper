@@ -62,7 +62,7 @@ Button :: struct {
             rect, theme.bg,
             b.theme.*.button_border_width.calc(b.font_size), theme.border, .Inside,
         );
-        draw_centered_text(rect, b.text, b.font_size, theme.text);
+        draw_centered_text(b.text, rect, b.font_size, theme.text);
 
         clicked
     }
@@ -92,7 +92,7 @@ draw_rect_border :: (rect: Rectangle, width: f32, color: Color, location: Border
     rl.DrawRectangleV(pos.add(.(rect.width - width, width)), vertical_size,   color);
 }
 
-draw_centered_text :: (container: Rectangle, text: *u8, font_size: f32, text_color: Color) -> {
+draw_centered_text :: (text: *u8, container: Rectangle, font_size: f32, text_color: Color) -> {
     text_width := rlext.MeasureTextF(text, font_size);
     text_offset := Vector2.((container.width - text_width) / 2, vertically_center_text(font_size, container.height));
     rlext.DrawTextV(text, container.pos().add(text_offset), font_size, text_color);
