@@ -1,0 +1,52 @@
+libc :: #import "libc";
+rl :: #import "./vendor/raylib/raylib.mylang";
+rm :: #import "./vendor/raylib/raymath.mylang";
+Vector2 :: rl.Vector2;
+Rectangle :: rl.Rectangle;
+Color :: rl.Color;
+
+Vector2.splat :: (val: f32) -> Vector2.(val, val);
+Vector2.add :: rm.Vector2Add;
+Vector2.add_val :: rm.Vector2AddValue;
+Vector2.sub :: rm.Vector2Subtract;
+Vector2.mul :: rm.Vector2Multiply;
+Vector2.div :: rm.Vector2Divide;
+
+Rectangle.of_vectors :: (pos: Vector2, size: Vector2) -> Rectangle.(pos.x, pos.y, size.x, size.y);
+Rectangle.pos :: (r: Rectangle) -> Vector2.(r.x, r.y);
+Rectangle.size :: (r: Rectangle) -> Vector2.(r.width, r.height);
+
+DrawTextV :: (text: *u8, position: Vector2, fontSize: f32, color: rl.Color) -> {
+    font := rl.GetFontDefault();
+    if (font.texture.id != 0) {
+        spacing := fontSize / 10;
+        rl.DrawTextEx(font, text, position, fontSize, spacing, color);
+    }
+}
+
+MeasureTextF :: (text: *u8, fontSize: f32) -> {
+    font := rl.GetFontDefault();
+    if (font.texture.id != 0) {
+        spacing := fontSize / 10;
+        rl.MeasureTextEx(font, text, fontSize, spacing).x
+    } else 0
+}
+
+Sprite :: struct {
+    texture: *rl.Texture2D;
+    source: Rectangle;
+}
+
+DrawSprite :: (
+    sprite: Sprite,
+    position: Vector2,
+    size: ?Vector2 = null,
+    origin := Vector2.(0, 0),
+    rotation: f32 = 0,
+    tint := rl.WHITE
+) -> {
+    size := size orelse .(libc.fabsf(sprite.source.width), libc.fabsf(sprite.source.height));
+    dest := Rectangle.(position.x, position.y, size.x, size.y);
+    rl.DrawTexturePro(sprite.texture.*, sprite.source, dest, origin, rotation, tint)
+}
+

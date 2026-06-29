@@ -3,8 +3,11 @@ libc :: #import "libc";
 rl :: #import "./vendor/raylib/raylib.mylang";
 rm :: #import "./vendor/raylib/raymath.mylang";
 rlgl :: #import "./vendor/raylib/rlgl.mylang";
+rlext :: #import "./raylib_ext.mylang";
 Vector2 :: rl.Vector2;
 Rectangle :: rl.Rectangle;
+
+gui :: #import "./gui.mylang";
 
 DEV :: true;
 
@@ -76,8 +79,10 @@ main :: -> {
 
     rl.SetConfigFlags(.WINDOW_RESIZABLE);
 
+    TITLE :: "Minesweeper";
+
     rl.InitWindow(1000, 1000, "OpenGL Triangle".ptr);
-    //rl.InitWindow(1000, 1000, "Minesweeper".ptr);
+    //rl.InitWindow(1600, 900, TITLE.ptr);
     defer rl.CloseWindow();
 
     rl.SetExitKey(.NULL);
@@ -107,9 +112,9 @@ main :: -> {
     defer rl.UnloadTexture(flag_mine_texture);
     flag_mine_sprite_width := flag_mine_texture.width.as(f32);
     flag_mine_sprite_height := flag_mine_texture.height.as(f32) / 2;
-    flag_sprite := Sprite.(&flag_mine_texture,
+    flag_sprite := rlext.Sprite.(&flag_mine_texture,
         .{ x=0, y=0, width=flag_mine_sprite_width, height=flag_mine_sprite_height });
-    mine_sprite := Sprite.(&flag_mine_texture,
+    mine_sprite := rlext.Sprite.(&flag_mine_texture,
         .{ x=0, y=flag_mine_sprite_height, width=flag_mine_sprite_width, height=flag_mine_sprite_height });
 
     // ----------------- Loop -----------------
@@ -120,9 +125,16 @@ main :: -> {
         GRID_BORDER_WIDTH :: 12;
         CELL_GAP :: 6;
         CELL_GAP_V := Vector2.splat(CELL_GAP);
-        UI_WIDTH :: 500;
 
-        grid_size_with_pad := min(screen_size.x - UI_WIDTH - SCREEN_PADDING, screen_size.y);
+        title_font_size := clamped_remap(screen_size.x, 900, 2500, 27, 96);
+        min_title_pad := title_font_size;
+        title_width := rlext.MeasureTextF(TITLE.ptr, title_font_size);
+        UI_PAD :: 20;
+        ui_min_width := title_width + 2 * max(min_title_pad, UI_PAD);
+
+        grid_size_with_pad := min(screen_size.x - ui_min_width - SCREEN_PADDING, screen_size.y);
+        ui_width := screen_size.x - grid_size_with_pad - SCREEN_PADDING;
+
         std.assert(grid.rows == grid.columns, "TODO: grid.rows != grid.columns");
         grid_size := grid_size_with_pad - 2 * SCREEN_PADDING;
         grid_offset: f32 = SCREEN_PADDING;
@@ -247,14 +259,14 @@ main :: -> {
                     color := if is_hovered and is_game_active then CELL_HOVER_BG else rl.RAYWHITE;
                     rl.DrawRectangleV(offset, .splat(cell_size), color);
                     if cell.state == .Flagged {
-                        DrawSprite(flag_sprite, offset, Some(.splat(cell_size)));
+                        rlext.DrawSprite(flag_sprite, offset, Some(.splat(cell_size)));
                     }
                     continue;
                 }
                 kind := cell.kind;
                 switch kind {
                     .Mine :> {
-                        DrawSprite(mine_sprite, offset, Some(.splat(cell_size)));
+                        rlext.DrawSprite(mine_sprite, offset, Some(.splat(cell_size)));
                     },
                     .Number :> {
                         mut text_buf: [8]u8;
@@ -263,29 +275,31 @@ main :: -> {
                         std.assert(wrote.as(uint) < text_buf.len);
                         std.assert(kind.as(uint) <= num_colors[..].len);
                         font_size := 0.85 * cell_size;
-                        text_width := MeasureTextF(text_buf.ptr, font_size);
-                        pad_left := (cell_size - text_width) / 2;
-                        // MeasureTextEx returns the font size, not the size of a glyph
-                        // => MeasureTextEx cannot be used to vertically center glyphs
-                        // The default font has a total height of 10 pixels, a one pixel gap above numbers
-                        // and a 2 pixel gap below numbers.
-                        pad_top := (cell_size - font_size * 0.9) / 2;
-                        DrawTextV(text_buf.ptr, offset.add(.(pad_left, pad_top)), font_size, num_colors[kind]);
+                        gui.draw_centered_text(.of_vectors(offset, .splat(cell_size)), text_buf.ptr, font_size, num_colors[kind]);
                     },
                 };
             }
         }
 
         { // UI
-            rl.BeginMode2D(.{ offset=.(grid_size_with_pad.as(f32), SCREEN_PADDING), target=.(0, 0), rotation=0, zoom=1 });
+            rl.BeginMode2D(.{ offset=.(grid_size_with_pad, SCREEN_PADDING), target=.(0, 0), rotation=0, zoom=1 });
             defer rl.EndMode2D();
 
-            UI_PAD :: 10;
-            font_size::100;
+            rl.DrawRectangleV(.(0, 0), .(ui_width, grid_size), CELL_BG_COLOR);
+            mut y: f32 = UI_PAD;
 
-            rl.DrawRectangleV(.(0, 0), .(UI_WIDTH, grid_size.as(f32)), CELL_BG_COLOR);
+            rlext.DrawTextV(TITLE.ptr, .((ui_width - title_width) / 2, y), title_font_size, rl.BLACK);
+            y += title_font_size + UI_PAD;
 
-            DrawTextV("Hello World".ptr, .splat(UI_PAD), font_size, rl.GREEN);
+            { // Buttons
+                size := Vector2.((ui_width - 3 * UI_PAD) / 2, 80);
+                font_size :: 60;
+
+                gui.Button.{ pos=.(UI_PAD             , y), size, text="New"    .ptr, font_size }.draw();
+                gui.Button.{ pos=.(UI_PAD * 2 + size.x, y), size, text="Restart".ptr, font_size }.draw();
+
+                y += size.y + UI_PAD;
+            }
         }
 
         /*
@@ -300,53 +314,8 @@ main :: -> {
     }
 }
 
-DrawTextV :: (text: *u8, position: Vector2, fontSize: f32, color: rl.Color) -> {
-    font := rl.GetFontDefault();
-    if (font.texture.id != 0) {
-        spacing := fontSize / 10;
-        rl.DrawTextEx(font, text, position, fontSize, spacing, color);
-    }
-}
-
-MeasureTextF :: (text: *u8, fontSize: f32) -> {
-    font := rl.GetFontDefault();
-    if (font.texture.id != 0) {
-        spacing := fontSize / 10;
-        rl.MeasureTextEx(font, text, fontSize, spacing).x
-    } else 0
-}
-
-Sprite :: struct {
-    texture: *rl.Texture2D;
-    source: Rectangle;
-}
-
-DrawSprite :: (
-    sprite: Sprite,
-    position: Vector2,
-    size: ?Vector2 = null,
-    origin := Vector2.(0, 0),
-    rotation: f32 = 0,
-    tint := rl.WHITE
-) -> {
-    size := size orelse .(libc.fabsf(sprite.source.width), libc.fabsf(sprite.source.height));
-    dest := Rectangle.(position.x, position.y, size.x, size.y);
-    rl.DrawTexturePro(sprite.texture.*, sprite.source, dest, origin, rotation, tint)
-}
-
 CellPos.eq :: (p: CellPos, other: CellPos) -> p.x == other.x and p.y == other.y;
 CellPos.as_vec2 :: (p: CellPos) -> Vector2.(p.x.as(f32), p.y.as(f32));
-
-Vector2.splat :: (val: f32) -> Vector2.(val, val);
-Vector2.add :: rm.Vector2Add;
-Vector2.add_val :: rm.Vector2AddValue;
-Vector2.sub :: rm.Vector2Subtract;
-Vector2.mul :: rm.Vector2Multiply;
-Vector2.div :: rm.Vector2Divide;
-
-Rectangle.of_vectors :: (pos: Vector2, size: Vector2) -> Rectangle.(pos.x, pos.y, size.x, size.y);
-Rectangle.pos :: (r: Rectangle) -> Vector2.(r.x, r.y);
-Rectangle.size :: (r: Rectangle) -> Vector2.(r.width, r.height);
 
 Grid.get_cell :: (g: *Grid, pos: CellPos) -> {
     std.assert(pos.x < g.*.columns);
@@ -434,3 +403,7 @@ Grid.print :: (g: Grid) -> {
 }
 
 min :: (a: f32, b: f32) -> if b < a then b else a;
+max :: (a: f32, b: f32) -> if b > a then b else a;
+
+clamped_remap :: (val: f32, inputStart: f32, inputEnd: f32, outputStart: f32, outputEnd: f32) ->
+    rm.Remap(rm.Clamp(val, inputStart, inputEnd), inputStart, inputEnd, outputStart, outputEnd);

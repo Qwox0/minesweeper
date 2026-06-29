@@ -865,24 +865,28 @@ SetShaderValueV : (shader: Shader, locIndex: i32, value: ?*any, uniformType: i32
 SetShaderValueMatrix : (shader: Shader, locIndex: i32, mat: Matrix) -> void : #extern;
 SetShaderValueTexture : (shader: Shader, locIndex: i32, texture: Texture2D) -> void : #extern;
 UnloadShader : (shader: Shader) -> void : #extern;
-GetScreenToWorldRay : (position: Vector2, camera: Camera) -> Ray : #extern;
+
+GetScreenToWorldRay   : (position: Vector2, camera: Camera) -> Ray : #extern;
 GetScreenToWorldRayEx : (position: Vector2, camera: Camera, width: i32, height: i32) -> Ray : #extern;
-GetWorldToScreen : (position: Vector3, camera: Camera) -> Vector2 : #extern;
-GetWorldToScreenEx : (position: Vector3, camera: Camera, width: i32, height: i32) -> Vector2 : #extern;
-GetWorldToScreen2D : (position: Vector2, camera: Camera2D) -> Vector2 : #extern;
-GetScreenToWorld2D : (position: Vector2, camera: Camera2D) -> Vector2 : #extern;
-GetCameraMatrix : (camera: Camera) -> Matrix : #extern;
-GetCameraMatrix2D : (camera: Camera2D) -> Matrix : #extern;
+GetWorldToScreen      : (position: Vector3, camera: Camera) -> Vector2 : #extern;
+GetWorldToScreenEx    : (position: Vector3, camera: Camera, width: i32, height: i32) -> Vector2 : #extern;
+GetWorldToScreen2D    : (position: Vector2, camera: Camera2D) -> Vector2 : #extern;
+GetScreenToWorld2D    : (position: Vector2, camera: Camera2D) -> Vector2 : #extern;
+GetCameraMatrix       : (camera: Camera) -> Matrix : #extern;
+GetCameraMatrix2D     : (camera: Camera2D) -> Matrix : #extern;
+
 SetTargetFPS : (fps: i32) -> void : #extern;
 GetFrameTime : () -> f32 : #extern;
-GetTime : () -> f64 : #extern;
-GetFPS : () -> i32 : #extern;
+GetTime      : () -> f64 : #extern;
+GetFPS       : () -> i32 : #extern;
+
 SwapScreenBuffer : () -> void : #extern;
-PollInputEvents : () -> void : #extern;
-WaitTime : (seconds: f64) -> void : #extern;
-SetRandomSeed : (seed: u32) -> void : #extern;
-GetRandomValue : (min: i32, max: i32) -> i32 : #extern;
-LoadRandomSequence : (count: u32, min: i32, max: i32) -> ?*mut i32 : #extern;
+PollInputEvents  : () -> void : #extern;
+WaitTime         : (seconds: f64) -> void : #extern;
+
+SetRandomSeed        : (seed: u32) -> void : #extern;
+GetRandomValue       : (min: i32, max: i32) -> i32 : #extern;
+LoadRandomSequence   : (count: u32, min: i32, max: i32) -> ?*mut i32 : #extern;
 UnloadRandomSequence : (sequence: ?*mut i32) -> void : #extern;
 
 TakeScreenshot : (fileName: ?*u8) -> void : #extern;

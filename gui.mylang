@@ -1,0 +1,48 @@
+rl :: #import "./vendor/raylib/raylib.mylang";
+//rm :: #import "./vendor/raylib/raymath.mylang";
+//rlgl :: #import "./vendor/raylib/rlgl.mylang";
+rlext :: #import "./raylib_ext.mylang";
+Vector2 :: rl.Vector2;
+Rectangle :: rl.Rectangle;
+Color :: rl.Color;
+
+Theme :: struct {
+    //static default := Theme.{};
+
+    ButtonColors :: struct { bg: Color, border: Color }
+    button := ButtonColors.{ bg=rl.LIGHTGRAY, border=rl.GRAY };
+    button_hovered := ButtonColors.{ bg=rl.SKYBLUE, border=rl.BLUE };
+}
+
+Button :: struct {
+    pos := Vector2.(0, 0);
+    size: Vector2;
+    bg_color := rl.GRAY;
+
+    text: *u8;
+    font_size: f32;
+    text_color := rl.BLACK;
+
+    draw :: (b: Button) -> {
+        rect := Rectangle.of_vectors(b.pos, b.size);
+        rl.DrawRectangleRec(rect, b.bg_color);
+        draw_centered_text(rect, b.text, b.font_size, b.text_color)
+    }
+}
+
+draw_centered_text :: (container: Rectangle, text: *u8, font_size: f32, text_color: Color) -> {
+    text_width := rlext.MeasureTextF(text, font_size);
+    text_offset := Vector2.((container.width - text_width) / 2, vertically_center_text(font_size, container.height));
+    rlext.DrawTextV(text, container.pos().add(text_offset), font_size, text_color);
+}
+
+// returns needed y offset.
+vertically_center_text :: (font_size: f32, container_height: f32) -> {
+    // MeasureTextEx returns the font size, not the size of a glyph
+    // => MeasureTextEx cannot be used to vertically center glyphs
+    // The default font has a total height of 10 pixels, a one pixel gap above numbers
+    // and a 2 pixel gap below numbers.
+    (container_height - font_size * 0.9) / 2
+}
+
+
