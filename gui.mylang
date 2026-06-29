@@ -1,3 +1,5 @@
+std :: #import "std";
+libc :: #import "libc";
 rl :: #import "./vendor/raylib/raylib.mylang";
 //rm :: #import "./vendor/raylib/raymath.mylang";
 //rlgl :: #import "./vendor/raylib/rlgl.mylang";
@@ -6,28 +8,88 @@ Vector2 :: rl.Vector2;
 Rectangle :: rl.Rectangle;
 Color :: rl.Color;
 
-Theme :: struct {
-    //static default := Theme.{};
+mut static cur_camera: rl.Camera2D;
 
-    ButtonColors :: struct { bg: Color, border: Color }
-    button := ButtonColors.{ bg=rl.LIGHTGRAY, border=rl.GRAY };
-    button_hovered := ButtonColors.{ bg=rl.SKYBLUE, border=rl.BLUE };
+// use this instead of `rl.BeginMode2D`
+BeginMode2D :: (camera: rl.Camera2D) -> {
+    cur_camera = camera;
+    rl.BeginMode2D(camera)
+}
+
+// ----------------- themed -----------------
+
+Theme :: struct {
+    /// <https://github.com/raysan5/raylib/blob/67359073ca2672744dba8b257bad372e6c8a87af/examples/core/raygui.h#L4485>
+    default :: Theme.{};
+
+    ButtonColors :: struct { bg: Color, border: Color, text: Color }
+    button_normal   := ButtonColors.{ bg=.(0xc9,0xc9,0xc9,0xff), border=.(0x83,0x83,0x83,0xff), text=.(0x68,0x68,0x68,0xff) };
+    button_hovered  := ButtonColors.{ bg=.(0xc9,0xef,0xfe,0xff), border=.(0x5b,0xb2,0xd9,0xff), text=.(0x6c,0x9b,0xbc,0xff) };
+    button_pressed  := ButtonColors.{ bg=.(0x97,0xe8,0xff,0xff), border=.(0x04,0x92,0xc7,0xff), text=.(0x36,0x8b,0xaf,0xff) };
+    button_disabled := ButtonColors.{ bg=.(0xe6,0xe9,0xe9,0xff), border=.(0xb5,0xc1,0xc2,0xff), text=.(0xae,0xb7,0xb8,0xff) };
+
+    BorderWidth :: struct {
+        base: f32;
+        scale: f32;
+        calc :: (w: BorderWidth, font_size: f32) -> w.base + w.scale * font_size;
+    }
+    button_border_width: BorderWidth = .{ base=0, scale=0.1 };
 }
 
 Button :: struct {
     pos := Vector2.(0, 0);
     size: Vector2;
-    bg_color := rl.GRAY;
 
     text: *u8;
     font_size: f32;
-    text_color := rl.BLACK;
+
+    theme := &Theme.default;
 
     draw :: (b: Button) -> {
         rect := Rectangle.of_vectors(b.pos, b.size);
-        rl.DrawRectangleRec(rect, b.bg_color);
-        draw_centered_text(rect, b.text, b.font_size, b.text_color)
+
+        mut clicked := false;
+
+        mouse_pos := rl.GetScreenToWorld2D(rl.GetMousePosition(), cur_camera);
+        theme := if rl.CheckCollisionPointRec(mouse_pos, rect) {
+            if rl.IsMouseButtonReleased(.LEFT) clicked = true;
+
+
+            if rl.IsMouseButtonDown(.LEFT) b.theme.*.button_pressed else b.theme.*.button_hovered
+        } else b.theme.*.button_normal;
+
+        draw_bordered_rect(
+            rect, theme.bg,
+            b.theme.*.button_border_width.calc(b.font_size), theme.border, .Inside,
+        );
+        draw_centered_text(rect, b.text, b.font_size, theme.text);
+
+        clicked
     }
+}
+
+// ----------------- unthemed -----------------
+
+BorderLocation :: enum { Inside, Outside }
+draw_bordered_rect :: (rect: Rectangle, bg_color: Color, border_width: f32, border_color: Color, border_location: BorderLocation) -> {
+    bg_rect := if border_location == .Inside then Rectangle.of_vectors(
+        rect.pos().add_val(border_width),
+        rect.size().sub_val(border_width * 2)
+    ) else rect;
+    rl.DrawRectangleRec(bg_rect, bg_color);
+    draw_rect_border(rect, border_width, border_color, border_location);
+}
+
+draw_rect_border :: (rect: Rectangle, width: f32, color: Color, location: BorderLocation) -> {
+    if width <= 0 return;
+    std.assert(location == .Inside, "TODO: Outside");
+    pos := rect.pos();
+    horizontal_size := Vector2.(rect.width, width);
+    vertical_size := Vector2.(width, rect.height - 2 * width);
+    rl.DrawRectangleV(pos,                                   horizontal_size, color);
+    rl.DrawRectangleV(pos.add_y(width),                      vertical_size,   color);
+    rl.DrawRectangleV(pos.add_y(rect.height - width),        horizontal_size, color);
+    rl.DrawRectangleV(pos.add(.(rect.width - width, width)), vertical_size,   color);
 }
 
 draw_centered_text :: (container: Rectangle, text: *u8, font_size: f32, text_color: Color) -> {
@@ -40,9 +102,7 @@ draw_centered_text :: (container: Rectangle, text: *u8, font_size: f32, text_col
 vertically_center_text :: (font_size: f32, container_height: f32) -> {
     // MeasureTextEx returns the font size, not the size of a glyph
     // => MeasureTextEx cannot be used to vertically center glyphs
-    // The default font has a total height of 10 pixels, a one pixel gap above numbers
-    // and a 2 pixel gap below numbers.
+    // The default font has a total height of 10 pixels, a one pixel gap above most characters
+    // and a 2 pixel gap below most characters.
     (container_height - font_size * 0.9) / 2
 }
-
-

@@ -14,17 +14,12 @@ DEV :: true;
 Grid :: struct {
     rows: u32;
     columns: u32;
+    cells: []mut Cell;
+
     mine_count: u32;
-    cells: Cells;
+    flag_count: i32 = 0;
 
-    destroy :: (g: Grid) -> g.cells.destroy();
-}
-
-Cells :: struct {
-    data: []mut Cell;
-    alloc: std.mem.Allocator;
-
-    destroy :: (self: Cells) -> self.alloc.free(self.data.ptr);
+    destroy :: (g: Grid, alloc: std.mem.Allocator) -> alloc.free(g.cells.ptr);
 }
 
 Cell :: struct {
@@ -34,15 +29,15 @@ Cell :: struct {
 
 CellPos :: struct { x: u32, y: u32 };
 
-Cells.new_uninit :: (count: u32, alloc: std.mem.Allocator) -> ?Cells {
+alloc_cells :: (count: u32, alloc: std.mem.Allocator) -> ?[]mut Cell {
     count := count.as(uint);
     buf := alloc.alloc(count * #sizeof(Cell), #alignof(Cell)) orelse return null;
-    Cells.{ data=.{ ptr=buf.as(*mut Cell), len=count }, alloc }
+    Some(.{ ptr=buf.as(*mut Cell), len=count })
 }
 
 Grid.new_empty :: (rows: u32, columns: u32, alloc: std.mem.Allocator) -> ?Grid {
-    cells := Cells.new_uninit(rows * columns, alloc) orelse return null;
-    for idx in 0..cells.data.len do cells.data[idx] = .{ kind = .Number(0) };
+    cells := alloc_cells(rows * columns, alloc) orelse return null;
+    for idx in 0..cells.len do cells[idx] = .{ kind = .Number(0) };
 
     Grid.{ rows, columns, mine_count = 0, cells }
 }
@@ -70,42 +65,52 @@ Grid.new_random :: (rows: u32, columns: u32, mine_count: u32, alloc: std.mem.All
 BRIGHT_RED :: rl.Color.(255, 0, 0, 255);
 static num_colors: [9]rl.Color = .[rl.BLANK, rl.BLUE, rl.DARKGREEN, BRIGHT_RED, rl.DARKBLUE, rl.MAROON, rl.SKYBLUE, rl.BLACK, rl.GRAY];
 
+GameState :: struct {
+    grid: Grid;
+    status: enum {
+        Active,
+        Lost(struct { clicked_mine_pos: CellPos }),
+    } = .Active;
+
+    alloc: std.mem.Allocator;
+
+    destroy :: (s: GameState) -> {}
+}
+
 main :: -> {
-    mut buf: [1 * 1024 * 1024]u8;
-    alloc := std.mem.FixedArenaAllocator.new(buf[..]mut).&mut.allocator();
-    std.ctx.alloc = alloc;
-
     if DEV rl.SetConfigFlags(.WINDOW_UNFOCUSED);
-
     rl.SetConfigFlags(.WINDOW_RESIZABLE);
 
     TITLE :: "Minesweeper";
-
     rl.InitWindow(1000, 1000, "OpenGL Triangle".ptr);
     //rl.InitWindow(1600, 900, TITLE.ptr);
     defer rl.CloseWindow();
 
     rl.SetExitKey(.NULL);
-    rl.SetTargetFPS(60);
-
-    // ----------------- Grid init -----------------
-    grid_init_start := rl.GetTime();
-    libc.srand(libc.time(null).as(u32));
-    mut grid := Grid.new_random(10, 10, 16, alloc) orelse std.panic("oom");
-    //mut grid := Grid.new_random(10, 10, 50, alloc) orelse std.panic("oom");
-    defer grid.destroy();
-
-    grid_init_took := rl.GetTime() - grid_init_start;
-    libc.printf("grid init took %fus\n".ptr, (grid_init_took)*1000*1000); // μ
-
-    //grid.&mut.reveal_all();
-    grid.print();
 
     // ----------------- Game state -----------------
-    mut game_state: enum {
-        Active,
-        Lost(struct { clicked_mine_pos: CellPos }),
-    } = .Active;
+    libc.srand(libc.time(null).as(u32));
+
+    mut grid_buf: [100 * 1024]u8;
+    mut game_state_arena := std.mem.FixedArenaAllocator.new(grid_buf[..]mut);
+    game_state_alloc := game_state_arena.&mut.allocator();
+    mut game_state := GameState.{
+        grid = {
+            grid_init_start := rl.GetTime();
+            defer {
+                grid_init_took := rl.GetTime() - grid_init_start;
+                libc.printf("grid init took %fus\n".ptr, (grid_init_took)*1000*1000); // μ
+            };
+
+            Grid.new_random(10, 10, 16, game_state_alloc) orelse std.panic("oom")
+            //Grid.new_random(10, 10, 50, game_state_alloc) orelse std.panic("oom")
+        },
+        alloc = game_state_alloc,
+    };
+    defer game_state.destroy();
+
+    //game_state.grid.&mut.reveal_all();
+    game_state.grid.print();
 
     // ----------------- Sprites -----------------
     flag_mine_texture := rl.LoadTexture("./assets/VectorMinesweeper/VectorMinesweeperFlagMine.png".ptr);
@@ -118,7 +123,15 @@ main :: -> {
         .{ x=0, y=flag_mine_sprite_height, width=flag_mine_sprite_width, height=flag_mine_sprite_height });
 
     // ----------------- Loop -----------------
+    rl.SetTargetFPS(60);
+
+    mut frame_arena_buf: [100 * 1024]u8;
+    mut frame_arena := std.mem.FixedArenaAllocator.new(frame_arena_buf[..]mut);
+
     while not rl.WindowShouldClose() {
+        frame_arena.&mut.reset();
+        frame_alloc := frame_arena.&mut.allocator();
+
         screen_size := Vector2.(rl.GetScreenWidth().as(f32), rl.GetScreenHeight().as(f32));
 
         SCREEN_PADDING :: 20;
@@ -129,12 +142,13 @@ main :: -> {
         title_font_size := clamped_remap(screen_size.x, 900, 2500, 27, 96);
         min_title_pad := title_font_size;
         title_width := rlext.MeasureTextF(TITLE.ptr, title_font_size);
-        UI_PAD :: 20;
+        UI_PAD :: 24;
         ui_min_width := title_width + 2 * max(min_title_pad, UI_PAD);
 
         grid_size_with_pad := min(screen_size.x - ui_min_width - SCREEN_PADDING, screen_size.y);
         ui_width := screen_size.x - grid_size_with_pad - SCREEN_PADDING;
 
+        grid := game_state.grid;
         std.assert(grid.rows == grid.columns, "TODO: grid.rows != grid.columns");
         grid_size := grid_size_with_pad - 2 * SCREEN_PADDING;
         grid_offset: f32 = SCREEN_PADDING;
@@ -163,10 +177,93 @@ main :: -> {
             if is_on_border then null else Some(CellPos.(x.as(u32), y.as(u32)))
         } else null;
 
-        // Game logic
-        is_game_active := switch game_state { .Active :> true } else false;
+        CELL_BG_COLOR :: rl.LIGHTGRAY;
+        CELL_GAP_COLOR :: rl.GRAY;
+        CELL_HOVER_BG :: rl.LIME;
+
+        rl.BeginDrawing();
+        defer rl.EndDrawing();
+        rl.ClearBackground(rl.RAYWHITE);
+
+        // ----------------- Game logic + UI (affects state) -----------------
+
+        { // UI
+            gui.BeginMode2D(.{ offset=.(grid_size_with_pad, SCREEN_PADDING), target=.(0, 0), rotation=0, zoom=1 });
+            defer rl.EndMode2D();
+
+            gui.draw_rect_border(.(0, 0, ui_width, grid_size), 4, CELL_GAP_COLOR, .Inside);
+            mut y: f32 = UI_PAD;
+
+            rlext.DrawTextV(TITLE.ptr, .((ui_width - title_width) / 2, y), title_font_size, rl.BLACK);
+            y += title_font_size + UI_PAD;
+
+            { // Buttons
+                size := Vector2.((ui_width - 3 * UI_PAD) / 2, 80);
+                font_size := 0.625 * size.y;
+
+                if gui.Button.{ pos=.(UI_PAD, y), size, text="New".ptr, font_size }.draw() {
+                    alloc := game_state.alloc;
+                    game_state.destroy();
+                    game_state = .{
+                        grid = Grid.new_random(10, 10, 16, alloc) orelse std.panic("oom"),
+                        alloc,
+                    };
+                    game_state.grid.print();
+                }
+                if gui.Button.{ pos=.(UI_PAD * 2 + size.x, y), size, text="Restart".ptr, font_size }.draw() {
+                    for c in game_state.grid.cells.&mut do c.*.state = .Closed;
+                    game_state.grid.flag_count = 0;
+                    game_state.status = .Active;
+                }
+
+                y += size.y + UI_PAD;
+            }
+
+            {
+                mine_count_text := {
+                    wrote := libc.snprintf(frame_arena.pos, frame_arena.&.capacity(), ": %d".ptr, game_state.grid.mine_count);
+                    std.assert(wrote >= 0);
+                    cstr := frame_arena.pos;
+                    frame_arena.&mut.allocator().alloc(wrote.as(uint) + 1, 1);
+                    cstr
+                };
+                flag_count_text := {
+                    wrote := libc.snprintf(frame_arena.pos, frame_arena.&.capacity(), ": %d".ptr, game_state.grid.flag_count);
+                    std.assert(wrote >= 0);
+                    cstr := frame_arena.pos;
+                    frame_arena.&mut.allocator().alloc(wrote.as(uint) + 1, 1);
+                    cstr
+                };
+
+                font_size :: 50;
+                font_color :: rl.BLACK;
+                icon_size := Vector2.splat(cell_size * 0.8);
+
+                mine_count_text_width := rlext.MeasureTextF(mine_count_text, font_size);
+                flag_count_text_width := rlext.MeasureTextF(flag_count_text, font_size);
+
+                rlext.DrawSprite(mine_sprite, .(UI_PAD, y), Some(icon_size));
+                rlext.DrawTextV(
+                    mine_count_text,
+                    .(UI_PAD + icon_size.x, y + gui.vertically_center_text(font_size, icon_size.y)),
+                    font_size,
+                    font_color,
+                );
+
+                rlext.DrawSprite(flag_sprite, .(ui_width / 2, y), Some(icon_size));
+                rlext.DrawTextV(
+                    flag_count_text,
+                    .(ui_width / 2 + icon_size.x, y + gui.vertically_center_text(font_size, icon_size.y)),
+                    font_size,
+                    font_color,
+                );
+            }
+        }
+
+        is_game_active := switch game_state.status { .Active :> true } else false;
         switch hovered_cell_pos { Some :> if is_game_active {
-            hovered_cell := grid.&mut.get_cell_mut(hovered_cell_pos);
+            grid := game_state.grid.&mut;
+            hovered_cell := grid.get_cell_mut(hovered_cell_pos);
             if rl.IsMouseButtonPressed(.LEFT) {
                 switch hovered_cell.*.state {
                     .Open :> {},
@@ -175,38 +272,40 @@ main :: -> {
                         kind := hovered_cell.*.kind;
                         switch kind {
                             .Mine :> {
-                                game_state = .Lost(.{ clicked_mine_pos=hovered_cell_pos });
-                                grid.&mut.reveal_mines();
+                                game_state.status = .Lost(.{ clicked_mine_pos=hovered_cell_pos });
+                                grid.reveal_mines();
                             },
-                            .Number :> grid.&mut.reveal_number(hovered_cell_pos);
+                            .Number :> grid.reveal_number(hovered_cell_pos);
                         }
                     };
-                    .Flagged :> hovered_cell.*.state = .Closed;
+                    .Flagged :> {
+                        game_state.grid.flag_count -= 1;
+                        hovered_cell.*.state = .Closed;
+                    },
                 }
-                grid.print();
+                grid.*.print();
             } else if rl.IsMouseButtonPressed(.RIGHT) {
                 switch hovered_cell.*.state {
                     .Open :> {},
-                    .Closed :> hovered_cell.*.state = .Flagged;
-                    .Flagged :> hovered_cell.*.state = .Closed;
+                    .Closed :> {
+                        game_state.grid.flag_count += 1;
+                        hovered_cell.*.state = .Flagged;
+                    },
+                    .Flagged :> {
+                        game_state.grid.flag_count -= 1;
+                        hovered_cell.*.state = .Closed;
+                    },
                 }
-                grid.print();
+                grid.*.print();
             }
         }} else {}
 
-        // ----------------- Draw -----------------
-        rl.BeginDrawing();
-        defer rl.EndDrawing();
+        // ----------------- Draw (doesn't affect state) -----------------
 
-        rl.ClearBackground(rl.RAYWHITE);
-
-        CELL_BG_COLOR :: rl.LIGHTGRAY;
-        CELL_GAP_COLOR :: rl.GRAY;
-        CELL_HOVER_BG :: rl.LIME;
         rl.DrawRectangleRec(grid_content, CELL_BG_COLOR);
 
         { // Grid border
-            rl.BeginMode2D(.{ offset=.splat(grid_offset), target=.(0,0), rotation=0, zoom=1 });
+            gui.BeginMode2D(.{ offset=.splat(grid_offset), target=.(0,0), rotation=0, zoom=1 });
             defer rl.EndMode2D();
 
             rl.DrawRectangleV(.(0, 0), .(grid_size, GRID_BORDER_WIDTH), CELL_GAP_COLOR);
@@ -218,8 +317,8 @@ main :: -> {
         BOMB_EXPLODED_BG :: rl.Color.(250, 95, 103, 255);
 
         { // Grid content
-            //rl.BeginMode2D(.{ offset=.splat(grid_size_with_pad.as(f32) / 2), target=.splat(grid_content_size/2), rotation=30, zoom=1 });
-            rl.BeginMode2D(.{ offset=grid_content.pos(), target=.(0,0), rotation=0, zoom=1 });
+            //gui.BeginMode2D(.{ offset=.splat(grid_size_with_pad.as(f32) / 2), target=.splat(grid_content_size/2), rotation=30, zoom=1 });
+            gui.BeginMode2D(.{ offset=grid_content.pos(), target=.(0,0), rotation=0, zoom=1 });
             defer rl.EndMode2D();
 
             { // Cell borders
@@ -241,9 +340,10 @@ main :: -> {
                 }
             }
 
-            switch game_state {
+            status := game_state.status;
+            switch status {
                 .Lost :> {
-                    offset := game_state.clicked_mine_pos.as_vec2().mul(cell_and_gap_size);
+                    offset := status.clicked_mine_pos.as_vec2().mul(cell_and_gap_size);
                     rl.DrawRectangleV(offset, .splat(cell_size), BOMB_EXPLODED_BG);
                 },
             } else {}
@@ -281,27 +381,6 @@ main :: -> {
             }
         }
 
-        { // UI
-            rl.BeginMode2D(.{ offset=.(grid_size_with_pad, SCREEN_PADDING), target=.(0, 0), rotation=0, zoom=1 });
-            defer rl.EndMode2D();
-
-            rl.DrawRectangleV(.(0, 0), .(ui_width, grid_size), CELL_BG_COLOR);
-            mut y: f32 = UI_PAD;
-
-            rlext.DrawTextV(TITLE.ptr, .((ui_width - title_width) / 2, y), title_font_size, rl.BLACK);
-            y += title_font_size + UI_PAD;
-
-            { // Buttons
-                size := Vector2.((ui_width - 3 * UI_PAD) / 2, 80);
-                font_size :: 60;
-
-                gui.Button.{ pos=.(UI_PAD             , y), size, text="New"    .ptr, font_size }.draw();
-                gui.Button.{ pos=.(UI_PAD * 2 + size.x, y), size, text="Restart".ptr, font_size }.draw();
-
-                y += size.y + UI_PAD;
-            }
-        }
-
         /*
         { // Debug Font
             PAD :: 10;
@@ -321,16 +400,16 @@ Grid.get_cell :: (g: *Grid, pos: CellPos) -> {
     std.assert(pos.x < g.*.columns);
     std.assert(pos.y < g.*.rows);
     idx := (pos.y * g.*.columns + pos.x).as(uint);
-    std.assert(idx < g.*.cells.data.len);
-    g.*.cells.data[idx]
+    std.assert(idx < g.*.cells.len);
+    g.*.cells[idx]
 }
 
 Grid.get_cell_mut :: (g: *mut Grid, pos: CellPos) -> {
     std.assert(pos.x < g.*.columns);
     std.assert(pos.y < g.*.rows);
     idx := (pos.y * g.*.columns + pos.x).as(uint);
-    std.assert(idx < g.*.cells.data.len);
-    g.*.cells.data[idx].&mut
+    std.assert(idx < g.*.cells.len);
+    g.*.cells[idx].&mut
 }
 
 Grid.for_each_surrounding :: (g: *mut Grid, center: CellPos, f: (c: *mut Cell, pos: CellPos, g: *mut Grid) -> void) -> {
@@ -361,7 +440,7 @@ Grid.inc_surrounding :: (g: *mut Grid, center: CellPos) -> {
 }
 
 Grid.reveal_all :: (g: *mut Grid) -> {
-    for c in g.*.cells.data.&mut do c.*.state = .Open;
+    for c in g.*.cells.&mut do c.*.state = .Open;
 }
 
 Grid.reveal_number :: (g: *mut Grid, pos: CellPos) -> void {
@@ -375,18 +454,18 @@ Grid.reveal_number :: (g: *mut Grid, pos: CellPos) -> void {
 }
 
 Grid.reveal_mines :: (g: *mut Grid) -> {
-    for c in g.*.cells.data.&mut switch c.*.kind {
+    for c in g.*.cells.&mut switch c.*.kind {
         .Mine :> c.*.state = .Open;
         .Number :> {}
     }
 }
 
 Grid.print :: (g: Grid) -> {
-    libc.printf("grid %dx%d; mines: %d (%d left)\n".ptr, g.columns, g.rows, g.mine_count);
+    libc.printf("grid %dx%d; mines: %d\n".ptr, g.columns, g.rows, g.mine_count);
     for row_idx in 0..g.rows {
         for col_idx in 0..g.columns {
-            std.assert((row_idx * g.columns + col_idx).as(u64) < g.cells.data.len);
-            cell := g.cells.data[row_idx * g.columns + col_idx];
+            std.assert((row_idx * g.columns + col_idx).as(u64) < g.cells.len);
+            cell := g.cells[row_idx * g.columns + col_idx];
             switch cell.state {
                 .Closed  :> libc.printf("%c[0;2m".ptr, 0x1b);  // faint
                 .Open    :> libc.printf("%c[0m".ptr, 0x1b);    // normal
