@@ -6,6 +6,7 @@ Rectangle :: rl.Rectangle;
 Color :: rl.Color;
 
 Vector2.splat :: (val: f32) -> Vector2.(val, val);
+Vector2.eq :: (a: Vector2, b: Vector2) -> a.x == b.x and a.y == b.y;
 Vector2.add :: rm.Vector2Add;
 Vector2.add_val :: rm.Vector2AddValue;
 Vector2.add_x :: (v: Vector2, add: f32) -> Vector2.(v.x + add, v.y);

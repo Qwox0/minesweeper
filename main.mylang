@@ -168,11 +168,10 @@ main :: -> {
         title_font_size := clamped_remap(screen_size.x, 900, 2500, 27, 96);
         min_title_pad := title_font_size;
         title_width := rlext.MeasureTextF(TITLE.ptr, title_font_size);
-        UI_PAD :: 24;
-        ui_min_width := title_width + 2 * max(min_title_pad, UI_PAD);
+        ui_pad := 0.4 * title_font_size;
+        ui_min_width := title_width + 2 * max(min_title_pad, ui_pad);
 
         grid_size_with_pad := min(screen_size.x - ui_min_width - SCREEN_PADDING, screen_size.y);
-        ui_width := screen_size.x - grid_size_with_pad - SCREEN_PADDING;
 
         grid := game_state.grid;
         std.assert(grid.rows == grid.columns, "TODO: grid.rows != grid.columns");
@@ -259,20 +258,32 @@ main :: -> {
         // ----------------- UI (affects state) -----------------
 
         { // UI
-            gui.BeginMode2D(.{ offset=.(grid_size_with_pad, SCREEN_PADDING), target=.(0, 0), rotation=0, zoom=1 });
+            UI_BORDER_WIDTH :: 4;
+            UI_BORDER_COLOR :: CELL_GAP_COLOR;
+
+            gui.BeginMode2D(.{
+                offset=Vector2.(grid_size_with_pad, SCREEN_PADDING).add_val(UI_BORDER_WIDTH),
+                target=.(0, 0),
+                rotation=0,
+                zoom=1,
+            });
             defer rl.EndMode2D();
 
-            gui.draw_rect_border(.(0, 0, ui_width, grid_size), 4, CELL_GAP_COLOR, .Inside);
-            mut y: f32 = UI_PAD;
+            ui_width := screen_size.x - grid_size_with_pad - SCREEN_PADDING - 2 * UI_BORDER_WIDTH;
+            mut y: f32 = ui_pad;
+            defer { // UI border
+                ui_height := max(y, grid_size - 2 * UI_BORDER_WIDTH);
+                gui.draw_rect_border(.(0, 0, ui_width, ui_height), UI_BORDER_WIDTH, UI_BORDER_COLOR, .Outside);
+            };
 
             rlext.DrawTextV(TITLE.ptr, .((ui_width - title_width) / 2, y), title_font_size, rl.BLACK);
-            y += title_font_size + UI_PAD;
+            y += title_font_size + ui_pad;
 
             { // Buttons
-                size := Vector2.((ui_width - 3 * UI_PAD) / 2, 80);
-                font_size := 0.625 * size.y;
+                size := Vector2.((ui_width - 3 * ui_pad) / 2, 0.85 * title_font_size);
+                font_size := 0.65 * size.y;
 
-                if gui.Button.{ pos=.(UI_PAD, y), size, text="New".ptr, font_size }.draw() {
+                if gui.Button.{ pos=.(ui_pad, y), size, text="New".ptr, font_size }.draw() {
                     game_state.alloc.&mut.reset();
                     libc.printf("allocated = %d\n".ptr, game_state_arena.&.allocated());
                     game_state.grid = Grid.new_random(
@@ -281,41 +292,30 @@ main :: -> {
                     ) orelse std.panic("oom");
                     game_state.grid.print();
                 }
-                if gui.Button.{ pos=.(UI_PAD * 2 + size.x, y), size, text="Restart".ptr, font_size }.draw() {
+                if gui.Button.{ pos=.(ui_pad * 2 + size.x, y), size, text="Restart".ptr, font_size }.draw() {
                     game_state.grid.&mut.reset();
                     game_state.grid.print();
                 }
 
-                y += size.y + UI_PAD;
+
+                y += size.y + ui_pad;
             }
 
-            {
-                mine_count_text := {
-                    wrote := libc.snprintf(frame_arena.pos, frame_arena.&.capacity(), ": %d".ptr, game_state.grid.mine_count);
-                    std.assert(wrote >= 0, "wrote >= 0");
-                    cstr := frame_arena.pos;
-                    frame_arena.&mut.allocator().alloc(wrote.as(uint) + 1, 1);
-                    cstr
-                };
-                flag_count_text := {
-                    wrote := libc.snprintf(frame_arena.pos, frame_arena.&.capacity(), ": %d".ptr, game_state.grid.flag_count);
-                    std.assert(wrote >= 0, "wrote >= 0");
-                    cstr := frame_arena.pos;
-                    frame_arena.&mut.allocator().alloc(wrote.as(uint) + 1, 1);
-                    cstr
-                };
+            { // mine- and flag count
+                mine_count_text := tmp_snprintf(&mut frame_arena, ": %d", xx game_state.grid.mine_count).ptr;
+                flag_count_text := tmp_snprintf(&mut frame_arena, ": %d", xx game_state.grid.flag_count).ptr;
 
-                font_size :: 50;
+                font_size := 0.7 * title_font_size;
                 font_color :: rl.BLACK;
-                icon_size := Vector2.splat(cell_size * 0.8);
+                icon_size := Vector2.splat(1.3 * title_font_size);
 
                 mine_count_text_width := rlext.MeasureTextF(mine_count_text, font_size);
                 flag_count_text_width := rlext.MeasureTextF(flag_count_text, font_size);
 
-                rlext.DrawSprite(mine_sprite, .(UI_PAD, y), Some(icon_size));
+                rlext.DrawSprite(mine_sprite, .(ui_pad, y), Some(icon_size));
                 rlext.DrawTextV(
                     mine_count_text,
-                    .(UI_PAD + icon_size.x, y + gui.vertically_center_text(font_size, icon_size.y)),
+                    .(ui_pad + icon_size.x, y + gui.vertically_center_text(font_size, icon_size.y)),
                     font_size,
                     font_color,
                 );
@@ -328,12 +328,12 @@ main :: -> {
                     font_color,
                 );
 
-                y += icon_size.y + UI_PAD;
+                y += icon_size.y + ui_pad;
             }
 
             { // Game status text
                 font_size :: 90;
-                rect := Rectangle.(UI_PAD, y, ui_width - 2 * UI_PAD, font_size);
+                rect := Rectangle.(ui_pad, y, ui_width - 2 * ui_pad, font_size);
                 rl.DrawRectangleRec(rect, rl.LIGHTGRAY);
                 switch grid.status {
                     .Active :> {
@@ -346,6 +346,70 @@ main :: -> {
                     .Lost :> {
                         gui.draw_centered_text("You Lose!".ptr, rect, font_size, BRIGHT_RED);
                     },
+                }
+
+                y += font_size + ui_pad;
+            }
+
+            { // Seperator
+                rl.DrawRectangleRec(.(0, y, ui_width, UI_BORDER_WIDTH), UI_BORDER_COLOR);
+                y += UI_BORDER_WIDTH + ui_pad;
+            }
+
+            { // New grid config
+                font_size :: 45;
+                slider_height :: font_size;
+                //slider_border_width :: 3.5;
+                slider_border_width :: 4;
+
+                slider_size := Vector2.(ui_width - 2 * ui_pad, slider_height);
+
+                {
+                    text_y := y;
+                    defer {
+                        text := tmp_snprintf(&mut frame_arena, "Rows: %d", xx game_state.new_grid_config.rows);
+                        rlext.DrawTextV(text.ptr, .(ui_pad, text_y), font_size, rl.DARKGRAY);
+                    };
+                    y += font_size * 1.1;
+                    gui.SliderU32.{
+                        pos=.(ui_pad, y),
+                        size=slider_size,
+                        val=game_state.new_grid_config.rows.&mut,
+                        max=40,
+                    }.draw();
+                    y += slider_height + ui_pad;
+                }
+
+                {
+                    text_y := y;
+                    defer {
+                        text := tmp_snprintf(&mut frame_arena, "Columns: %d", xx game_state.new_grid_config.columns);
+                        rlext.DrawTextV(text.ptr, .(ui_pad, text_y), font_size, rl.DARKGRAY);
+                    };
+                    y += font_size * 1.1;
+                    gui.SliderU32.{
+                        pos=.(ui_pad, y),
+                        size=slider_size,
+                        val=game_state.new_grid_config.columns.&mut,
+                        max=40,
+                    }.draw();
+                    y += slider_height + ui_pad;
+                }
+
+                {
+                    text_y := y;
+                    defer {
+                        text := tmp_snprintf(&mut frame_arena, "Mines: %d", xx game_state.new_grid_config.mine_count);
+                        rlext.DrawTextV(text.ptr, .(ui_pad, text_y), font_size, rl.DARKGRAY);
+                    };
+                    y += font_size * 1.1;
+                    gui.SliderU32.{
+                        pos=.(ui_pad, y),
+                        size=slider_size,
+                        val=game_state.new_grid_config.mine_count.&mut,
+                        max=game_state.new_grid_config.columns * game_state.new_grid_config.rows / 2,
+                    }.draw();
+                    y += slider_height + ui_pad;
                 }
             }
         }
@@ -564,3 +628,12 @@ max :: (a: f32, b: f32) -> if b > a then b else a;
 
 clamped_remap :: (val: f32, inputStart: f32, inputEnd: f32, outputStart: f32, outputEnd: f32) ->
     rm.Remap(rm.Clamp(val, inputStart, inputEnd), inputStart, inputEnd, outputStart, outputEnd);
+
+tmp_snprintf :: (arena: *mut std.mem.FixedArenaAllocator, fmt: []u8, a := 0, b := 0, c := 0) -> []u8 {
+    cstr := arena.*.pos;
+    wrote := libc.snprintf(cstr, arena.capacity(), fmt.ptr, a, b, c);
+    std.assert(wrote >= 0, "tmp_snprintf: failed to write");
+    len := wrote.as(uint);
+    arena.allocator().alloc(len + 1, 1);
+    .{ ptr=cstr, len }
+}

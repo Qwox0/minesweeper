@@ -8,6 +8,8 @@ Vector2 :: rl.Vector2;
 Rectangle :: rl.Rectangle;
 Color :: rl.Color;
 
+main :: #import "./main.mylang";
+
 mut static cur_camera: rl.Camera2D;
 
 // use this instead of `rl.BeginMode2D`
@@ -16,17 +18,20 @@ BeginMode2D :: (camera: rl.Camera2D) -> {
     rl.BeginMode2D(camera)
 }
 
+mut static active_slider: ?struct { pos: Vector2 } = null;
+is_slider_active :: -> switch active_slider { Some :> true, null :> false };
+
 // ----------------- themed -----------------
 
 Theme :: struct {
     /// <https://github.com/raysan5/raylib/blob/67359073ca2672744dba8b257bad372e6c8a87af/examples/core/raygui.h#L4485>
     default :: Theme.{};
 
-    ButtonColors :: struct { bg: Color, border: Color, text: Color }
-    button_normal   := ButtonColors.{ bg=.(0xc9,0xc9,0xc9,0xff), border=.(0x83,0x83,0x83,0xff), text=.(0x68,0x68,0x68,0xff) };
-    button_hovered  := ButtonColors.{ bg=.(0xc9,0xef,0xfe,0xff), border=.(0x5b,0xb2,0xd9,0xff), text=.(0x6c,0x9b,0xbc,0xff) };
-    button_pressed  := ButtonColors.{ bg=.(0x97,0xe8,0xff,0xff), border=.(0x04,0x92,0xc7,0xff), text=.(0x36,0x8b,0xaf,0xff) };
-    button_disabled := ButtonColors.{ bg=.(0xe6,0xe9,0xe9,0xff), border=.(0xb5,0xc1,0xc2,0xff), text=.(0xae,0xb7,0xb8,0xff) };
+    Colors :: struct { bg: Color, border: Color, text: Color }
+    normal   := Colors.{ bg=.(0xc9,0xc9,0xc9,0xff), border=.(0x83,0x83,0x83,0xff), text=.(0x68,0x68,0x68,0xff) };
+    hovered  := Colors.{ bg=.(0xc9,0xef,0xfe,0xff), border=.(0x5b,0xb2,0xd9,0xff), text=.(0x6c,0x9b,0xbc,0xff) };
+    pressed  := Colors.{ bg=.(0x97,0xe8,0xff,0xff), border=.(0x04,0x92,0xc7,0xff), text=.(0x36,0x8b,0xaf,0xff) };
+    disabled := Colors.{ bg=.(0xe6,0xe9,0xe9,0xff), border=.(0xb5,0xc1,0xc2,0xff), text=.(0xae,0xb7,0xb8,0xff) };
 
     BorderWidth :: struct {
         base: f32;
@@ -34,6 +39,7 @@ Theme :: struct {
         calc :: (w: BorderWidth, font_size: f32) -> w.base + w.scale * font_size;
     }
     button_border_width: BorderWidth = .{ base=0, scale=0.1 };
+    slider_border_width: f32 = 4;
 }
 
 Button :: struct {
@@ -51,12 +57,11 @@ Button :: struct {
         mut clicked := false;
 
         mouse_pos := rl.GetScreenToWorld2D(rl.GetMousePosition(), cur_camera);
-        theme := if rl.CheckCollisionPointRec(mouse_pos, rect) {
+        theme := if not is_slider_active() and rl.CheckCollisionPointRec(mouse_pos, rect) {
             if rl.IsMouseButtonReleased(.LEFT) clicked = true;
 
-
-            if rl.IsMouseButtonDown(.LEFT) b.theme.*.button_pressed else b.theme.*.button_hovered
-        } else b.theme.*.button_normal;
+            if rl.IsMouseButtonDown(.LEFT) b.theme.*.pressed else b.theme.*.hovered
+        } else b.theme.*.normal;
 
         draw_bordered_rect(
             rect, theme.bg,
@@ -65,6 +70,61 @@ Button :: struct {
         draw_centered_text(b.text, rect, b.font_size, theme.text);
 
         clicked
+    }
+}
+
+SliderU32 :: struct {
+    pos := Vector2.(0, 0);
+    size: Vector2;
+
+    val: *mut u32;
+    min: u32 = 1;
+    max: u32;
+
+    theme := &Theme.default;
+
+    draw :: (s: SliderU32) -> {
+        rect := Rectangle.of_vectors(s.pos, s.size);
+
+        mouse_pos := rl.GetScreenToWorld2D(rl.GetMousePosition(), cur_camera);
+
+        picker_pos := main.clamped_remap(s.val.*.as(f32), s.min.as(f32), s.max.as(f32), s.pos.x, s.pos.x + s.size.x);
+
+        mut theme := s.theme.*.normal;
+
+        active_s := active_slider;
+        switch active_s {
+            Some :> if active_s.pos.eq(s.pos) {
+                if rl.IsMouseButtonDown(.LEFT) {
+                    s.val.* = main.clamped_remap(mouse_pos.x, s.pos.x, s.pos.x + s.size.x, s.min.as(f32), s.max.as(f32)).as(u32);
+                    theme = s.theme.*.pressed;
+                } else active_slider = null;
+            },
+        } else if rl.CheckCollisionPointRec(mouse_pos, rect) {
+            if rl.IsMouseButtonDown(.LEFT) {
+                s.val.* = main.clamped_remap(mouse_pos.x, s.pos.x, s.pos.x + s.size.x, s.min.as(f32), s.max.as(f32)).as(u32);
+                active_slider = Some(.{ pos=s.pos });
+
+                theme = s.theme.*.pressed;
+            } else theme = s.theme.*.hovered;
+        }
+
+        if s.val.* < s.min then s.val.* = s.min
+        else if s.val.* > s.max then s.val.* = s.max;
+
+        border_width := s.theme.*.slider_border_width;
+        draw_bordered_rect(rect, theme.bg, border_width, theme.border, .Inside);
+
+        picker_width :: 20;
+        picker_y_overhang :: 6;
+        rect := Rectangle.(picker_pos - picker_width/2, s.pos.y - picker_y_overhang, picker_width, s.size.y + 2 * picker_y_overhang);
+        draw_bordered_rect(rect, theme.bg, border_width, theme.border, .Inside);
+
+        line_width := border_width;
+        rl.DrawRectangleRec(.(
+            picker_pos - (line_width/2), s.pos.y + 2 * border_width,
+            line_width,                  s.size.y - 4 * border_width,
+        ), theme.border);
     }
 }
 
