@@ -107,8 +107,7 @@ main :: -> {
     rl.SetConfigFlags(.WINDOW_RESIZABLE);
 
     TITLE :: "Minesweeper";
-    rl.InitWindow(1000, 1000, "OpenGL Triangle".ptr);
-    //rl.InitWindow(1600, 900, TITLE.ptr);
+    rl.InitWindow(1600, 900, TITLE.ptr);
     defer rl.CloseWindow();
 
     rl.SetExitKey(.NULL);
@@ -163,7 +162,6 @@ main :: -> {
         SCREEN_PADDING :: 20;
         GRID_BORDER_WIDTH :: 12;
         CELL_GAP :: 6;
-        CELL_GAP_V := Vector2.splat(CELL_GAP);
 
         title_font_size := clamped_remap(screen_size.x, 900, 2500, 27, 96);
         min_title_pad := title_font_size;
@@ -171,27 +169,34 @@ main :: -> {
         ui_pad := 0.4 * title_font_size;
         ui_min_width := title_width + 2 * max(min_title_pad, ui_pad);
 
-        grid_size_with_pad := min(screen_size.x - ui_min_width - SCREEN_PADDING, screen_size.y);
-
         grid := game_state.grid;
-        std.assert(grid.rows == grid.columns, "TODO: grid.rows != grid.columns");
-        grid_size := grid_size_with_pad - 2 * SCREEN_PADDING;
-        grid_offset: f32 = SCREEN_PADDING;
+        std.assert(grid.rows > 0, "rows > 0");
+        std.assert(grid.columns > 0, "columns > 0");
 
-        grid_content_size := grid_size - 2 * GRID_BORDER_WIDTH;
+        cell_count := Vector2.(grid.columns.as(f32), grid.rows.as(f32));
+
+        cell_and_gap_size := {
+            max_cell_and_gap_size := Vector2.(screen_size.x - ui_min_width - SCREEN_PADDING, screen_size.y)
+                .sub_val(2 * SCREEN_PADDING + 2 * GRID_BORDER_WIDTH)
+                .add_val(CELL_GAP)
+                .div(cell_count);
+            // cells are always square
+            Vector2.splat(min(max_cell_and_gap_size.x, max_cell_and_gap_size.y))
+        };
+        cell_size := cell_and_gap_size.sub_val(CELL_GAP);
+
         grid_content := Rectangle.of_vectors(
-            .splat(grid_offset + GRID_BORDER_WIDTH),
-            .splat(grid_content_size),
+            .splat(SCREEN_PADDING + GRID_BORDER_WIDTH),
+            cell_and_gap_size.mul(cell_count).sub_val(CELL_GAP),
         );
-        cell_size := (grid_content_size + CELL_GAP) / grid.rows.as(f32) - CELL_GAP;
+        grid_size := grid_content.size().add_val(2 * GRID_BORDER_WIDTH);
 
         mouse_pos := rl.GetMousePosition();
         mouse_delta := rl.GetMouseDelta();
 
-        cell_and_gap_size := Vector2.splat(cell_size + CELL_GAP);
         hovered_cell_pos := if rl.CheckCollisionPointRec(mouse_pos, grid_content) {
             mouse_posspace := mouse_pos.sub(grid_content.pos()).div(cell_and_gap_size);
-            gap_posspace := CELL_GAP_V.div(cell_and_gap_size);
+            gap_posspace := Vector2.splat(CELL_GAP).div(cell_and_gap_size);
 
             mut x: f32; mut y: f32;
             x_frac := libc.modff(mouse_posspace.x, &mut x);
@@ -261,18 +266,20 @@ main :: -> {
             UI_BORDER_WIDTH :: 4;
             UI_BORDER_COLOR :: CELL_GAP_COLOR;
 
+            offset_x := grid_size.x + 2 * SCREEN_PADDING;
+
             gui.BeginMode2D(.{
-                offset=Vector2.(grid_size_with_pad, SCREEN_PADDING).add_val(UI_BORDER_WIDTH),
+                offset=Vector2.(offset_x, SCREEN_PADDING).add_val(UI_BORDER_WIDTH),
                 target=.(0, 0),
                 rotation=0,
                 zoom=1,
             });
             defer rl.EndMode2D();
 
-            ui_width := screen_size.x - grid_size_with_pad - SCREEN_PADDING - 2 * UI_BORDER_WIDTH;
+            ui_width := screen_size.x - offset_x - SCREEN_PADDING - 2 * UI_BORDER_WIDTH;
             mut y: f32 = ui_pad;
             defer { // UI border
-                ui_height := max(y, grid_size - 2 * UI_BORDER_WIDTH);
+                ui_height := max(y, grid_size.y - 2 * UI_BORDER_WIDTH);
                 gui.draw_rect_border(.(0, 0, ui_width, ui_height), UI_BORDER_WIDTH, UI_BORDER_COLOR, .Outside);
             };
 
@@ -425,18 +432,18 @@ main :: -> {
             defer rl.EndMode2D();
 
             { // Cell borders
-                std.assert(grid.rows > 0, "rows > 0");
-                for idx in 0..grid.rows - 1 {
+                std.assert(grid.columns > 0, "columns > 0");
+                for idx in 0..grid.columns - 1 {
                     rl.DrawRectangleV(
-                        .(cell_size + idx.as(f32) * cell_and_gap_size.x, 0),
+                        .(cell_size.x + idx.as(f32) * cell_and_gap_size.x, 0),
                         .(CELL_GAP, grid_content.height),
                         CELL_GAP_COLOR,
                     );
                 }
-                std.assert(grid.columns > 0, "columns > 0");
-                for idx in 0..grid.columns - 1 {
+                std.assert(grid.rows > 0, "rows > 0");
+                for idx in 0..grid.rows - 1 {
                     rl.DrawRectangleV(
-                        .(0, cell_size + idx.as(f32) * cell_and_gap_size.y),
+                        .(0, cell_size.y + idx.as(f32) * cell_and_gap_size.y),
                         .(grid_content.width, CELL_GAP),
                         CELL_GAP_COLOR,
                     );
@@ -447,7 +454,7 @@ main :: -> {
             switch status {
                 .Lost :> {
                     offset := status.clicked_mine_pos.as_vec2().mul(cell_and_gap_size);
-                    rl.DrawRectangleV(offset, .splat(cell_size), BOMB_EXPLODED_BG);
+                    rl.DrawRectangleV(offset, cell_size, BOMB_EXPLODED_BG);
                 },
             } else {}
 
@@ -460,16 +467,16 @@ main :: -> {
                         Some :> pos.eq(hovered_cell_pos);
                     } else false;
                     color := if is_hovered and is_game_active then CELL_HOVER_BG else rl.RAYWHITE;
-                    rl.DrawRectangleV(offset, .splat(cell_size), color);
+                    rl.DrawRectangleV(offset, cell_size, color);
                     if cell.state == .Flagged {
-                        rlext.DrawSprite(flag_sprite, offset, Some(.splat(cell_size)));
+                        rlext.DrawSprite(flag_sprite, offset, Some(cell_size));
                     }
                     continue;
                 }
                 kind := cell.kind;
                 switch kind {
                     .Mine :> {
-                        rlext.DrawSprite(mine_sprite, offset, Some(.splat(cell_size)));
+                        rlext.DrawSprite(mine_sprite, offset, Some(cell_size));
                     },
                     .Number :> {
                         mut text_buf: [8]u8;
@@ -477,8 +484,8 @@ main :: -> {
                         wrote := libc.snprintf(text_buf.ptr, text_buf.len, "%d".ptr, kind);
                         std.assert(wrote.as(uint) < text_buf.len, "wrote < text_buf.len");
                         std.assert(kind.as(uint) <= num_colors[..].len, "num_colors[kind] out of bounds");
-                        font_size := 0.85 * cell_size;
-                        gui.draw_centered_text(text_buf.ptr, .of_vectors(offset, .splat(cell_size)), font_size, num_colors[kind]);
+                        font_size := 0.85 * cell_size.y;
+                        gui.draw_centered_text(text_buf.ptr, .of_vectors(offset, cell_size), font_size, num_colors[kind]);
                     },
                 };
             }
@@ -500,18 +507,18 @@ CellPos.eq :: (p: CellPos, other: CellPos) -> p.x == other.x and p.y == other.y;
 CellPos.as_vec2 :: (p: CellPos) -> Vector2.(p.x.as(f32), p.y.as(f32));
 
 Grid.get_cell :: (g: *Grid, pos: CellPos) -> {
-    std.assert(pos.x < g.*.columns);
-    std.assert(pos.y < g.*.rows);
+    std.assert(pos.x < g.*.columns, "x < columns");
+    std.assert(pos.y < g.*.rows, "y < rows");
     idx := (pos.y * g.*.columns + pos.x).as(uint);
-    std.assert(idx < g.*.cells.len);
+    std.assert(idx < g.*.cells.len, "idx < cells.len");
     g.*.cells[idx]
 }
 
 Grid.get_cell_mut :: (g: *mut Grid, pos: CellPos) -> {
-    std.assert(pos.x < g.*.columns);
-    std.assert(pos.y < g.*.rows);
+    std.assert(pos.x < g.*.columns, "x < columns");
+    std.assert(pos.y < g.*.rows, "y < rows");
     idx := (pos.y * g.*.columns + pos.x).as(uint);
-    std.assert(idx < g.*.cells.len);
+    std.assert(idx < g.*.cells.len, "idx < cells.len");
     g.*.cells[idx].&mut
 }
 
