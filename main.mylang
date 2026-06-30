@@ -60,7 +60,16 @@ Grid.new_empty :: (rows: u32, columns: u32, alloc: std.mem.Allocator) -> ?Grid {
     Grid.{ rows, columns, mine_count = 0, cells }
 }
 
-Grid.new_random :: (rows: u32, columns: u32, mine_count: u32, alloc: std.mem.Allocator) -> {
+NewGridConfig :: struct {
+    rows: u32;
+    columns: u32;
+    mine_count: u32;
+}
+
+Grid.new_random :: (config: NewGridConfig, alloc: std.mem.Allocator) -> {
+    rows := config.rows;
+    columns := config.columns;
+    mine_count := config.mine_count;
     std.assert(rows > 0 and columns > 0, "need positive rows, columns");
     std.assert(mine_count <= rows * columns, "mine_count <= rows * columns");
     mut grid := Grid.new_empty(rows, columns, alloc) orelse return null;
@@ -86,9 +95,11 @@ static num_colors: [9]rl.Color = .[rl.BLANK, rl.BLUE, rl.DARKGREEN, BRIGHT_RED, 
 GameState :: struct {
     grid: Grid;
 
-    alloc: std.mem.Allocator;
+    new_grid_config: NewGridConfig;
 
-    destroy :: (s: GameState) -> {}
+    alloc: std.mem.FixedArenaAllocator;
+
+    destroy :: (s: *mut GameState) -> s.*.alloc.&mut.reset();
 }
 
 main :: -> {
@@ -108,6 +119,7 @@ main :: -> {
     mut grid_buf: [100 * 1024]u8;
     mut game_state_arena := std.mem.FixedArenaAllocator.new(grid_buf[..]mut);
     game_state_alloc := game_state_arena.&mut.allocator();
+    new_grid_config := NewGridConfig.(10, 10, 16);
     mut game_state := GameState.{
         grid = {
             grid_init_start := rl.GetTime();
@@ -116,12 +128,12 @@ main :: -> {
                 libc.printf("grid init took %fus\n".ptr, (grid_init_took)*1000*1000); // μ
             };
 
-            Grid.new_random(10, 10, 16, game_state_alloc) orelse std.panic("oom")
-            //Grid.new_random(10, 10, 50, game_state_alloc) orelse std.panic("oom")
+            Grid.new_random(new_grid_config, game_state_arena.&mut.allocator()) orelse std.panic("oom")
         },
-        alloc = game_state_alloc,
+        new_grid_config,
+        alloc = game_state_arena,
     };
-    defer game_state.destroy();
+    defer game_state.&mut.destroy();
 
     //game_state.grid.&mut.reveal_all();
     game_state.grid.print();
@@ -233,26 +245,12 @@ main :: -> {
                 },
                 .FlagCell :> {
                     hovered_cell.*.state = .Flagged;
-                    grid.*.flag_count += 1;
-                    switch hovered_cell.*.kind {
-                        .Mine :> {
-                            std.assert(grid.*.incorrect_flag_count >= 0, "incorrect_flag_count >= 0");
-                            if grid.*.incorrect_flag_count == 0 and grid.*.flag_count == grid.*.mine_count {
-                                grid.*.status = .Won;
-                                grid.reveal_non_mines();
-                            }
-                        },
-                        .Number :> grid.*.incorrect_flag_count += 1,
-                    }
+                    grid.update_flag_count(hovered_cell.*, .Increment);
                     grid.*.print();
                 },
                 .UnflagCell :> {
                     hovered_cell.*.state = .Closed;
-                    grid.*.flag_count -= 1;
-                    switch hovered_cell.*.kind {
-                        .Mine :> {},
-                        .Number :> grid.*.incorrect_flag_count -= 1,
-                    }
+                    grid.update_flag_count(hovered_cell.*, .Decrement);
                     grid.*.print();
                 },
             }
@@ -275,12 +273,12 @@ main :: -> {
                 font_size := 0.625 * size.y;
 
                 if gui.Button.{ pos=.(UI_PAD, y), size, text="New".ptr, font_size }.draw() {
-                    alloc := game_state.alloc;
-                    game_state.destroy();
-                    game_state = .{
-                        grid = Grid.new_random(10, 10, 16, alloc) orelse std.panic("oom"),
-                        alloc,
-                    };
+                    game_state.alloc.&mut.reset();
+                    libc.printf("allocated = %d\n".ptr, game_state_arena.&.allocated());
+                    game_state.grid = Grid.new_random(
+                        game_state.new_grid_config,
+                        game_state.alloc.&mut.allocator()
+                    ) orelse std.panic("oom");
                     game_state.grid.print();
                 }
                 if gui.Button.{ pos=.(UI_PAD * 2 + size.x, y), size, text="Restart".ptr, font_size }.draw() {
@@ -336,14 +334,16 @@ main :: -> {
             { // Game status text
                 font_size :: 90;
                 rect := Rectangle.(UI_PAD, y, ui_width - 2 * UI_PAD, font_size);
+                rl.DrawRectangleRec(rect, rl.LIGHTGRAY);
                 switch grid.status {
-                    .Active :> {},
+                    .Active :> {
+                        is_playing := grid.opened_cell_count > 0;
+                        if is_playing then gui.draw_centered_text("Playing ...".ptr, rect, font_size / 2, rl.DARKGRAY);
+                    },
                     .Won :> {
-                        rl.DrawRectangleRec(rect, rl.LIGHTGRAY);
                         gui.draw_centered_text("You Win!".ptr, rect, font_size, rl.GREEN);
                     },
                     .Lost :> {
-                        rl.DrawRectangleRec(rect, rl.LIGHTGRAY);
                         gui.draw_centered_text("You Lose!".ptr, rect, font_size, BRIGHT_RED);
                     },
                 }
@@ -351,18 +351,7 @@ main :: -> {
         }
 
         // ----------------- Draw (doesn't affect state) -----------------
-
-        rl.DrawRectangleRec(grid_content, CELL_BG_COLOR);
-
-        { // Grid border
-            gui.BeginMode2D(.{ offset=.splat(grid_offset), target=.(0,0), rotation=0, zoom=1 });
-            defer rl.EndMode2D();
-
-            rl.DrawRectangleV(.(0, 0), .(grid_size, GRID_BORDER_WIDTH), CELL_GAP_COLOR);
-            rl.DrawRectangleV(.(0, 0), .(GRID_BORDER_WIDTH, grid_size), CELL_GAP_COLOR);
-            rl.DrawRectangleV(.(0, grid_size - GRID_BORDER_WIDTH), .(grid_size, GRID_BORDER_WIDTH), CELL_GAP_COLOR);
-            rl.DrawRectangleV(.(grid_size - GRID_BORDER_WIDTH, 0), .(GRID_BORDER_WIDTH, grid_size), CELL_GAP_COLOR);
-        }
+        gui.draw_bordered_rect(grid_content, CELL_BG_COLOR, GRID_BORDER_WIDTH, CELL_GAP_COLOR, .Outside);
 
         BOMB_EXPLODED_BG :: rl.Color.(250, 95, 103, 255);
 
@@ -496,6 +485,7 @@ Grid.reveal_all :: (g: *mut Grid) -> {
 Grid.reveal_cell :: (g: *mut Grid, pos: CellPos) -> void {
     cell := g.get_cell_mut(pos);
     if cell.*.state != .Open {
+        if cell.*.state == .Flagged then g.update_flag_count(cell.*, .Decrement);
         cell.*.state = .Open;
         g.*.opened_cell_count += 1;
     }
@@ -523,6 +513,23 @@ Grid.reveal_non_mines :: (g: *mut Grid) -> {
     for c in g.*.cells.&mut switch c.*.kind {
         .Mine :> {},
         .Number :> c.*.state = .Open,
+    }
+}
+
+Grid.update_flag_count :: (g: *mut Grid, cell: Cell, change: enum { Decrement = -1, Increment = 1 }) -> {
+    change := change.as(i32);
+    g.*.flag_count += change;
+    switch cell.kind {
+        .Mine :> {},
+        .Number :> g.*.incorrect_flag_count += change,
+    }
+
+    { // Flag win condition
+        std.assert(g.*.incorrect_flag_count >= 0, "incorrect_flag_count >= 0");
+        if g.*.incorrect_flag_count == 0 and g.*.flag_count == g.*.mine_count {
+            g.*.status = .Won;
+            g.reveal_non_mines();
+        }
     }
 }
 

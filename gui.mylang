@@ -82,14 +82,25 @@ draw_bordered_rect :: (rect: Rectangle, bg_color: Color, border_width: f32, bord
 
 draw_rect_border :: (rect: Rectangle, width: f32, color: Color, location: BorderLocation) -> {
     if width <= 0 return;
-    std.assert(location == .Inside, "TODO: Outside");
     pos := rect.pos();
-    horizontal_size := Vector2.(rect.width, width);
-    vertical_size := Vector2.(width, rect.height - 2 * width);
-    rl.DrawRectangleV(pos,                                   horizontal_size, color);
-    rl.DrawRectangleV(pos.add_y(width),                      vertical_size,   color);
-    rl.DrawRectangleV(pos.add_y(rect.height - width),        horizontal_size, color);
-    rl.DrawRectangleV(pos.add(.(rect.width - width, width)), vertical_size,   color);
+    switch location {
+        .Inside :> {
+            horizontal_size := Vector2.(rect.width, width);
+            vertical_size := Vector2.(width, rect.height - 2 * width);
+            rl.DrawRectangleV(pos,                                   horizontal_size, color); // top
+            rl.DrawRectangleV(pos.add_y(width),                      vertical_size,   color); // left
+            rl.DrawRectangleV(pos.add_y(rect.height - width),        horizontal_size, color); // bottom
+            rl.DrawRectangleV(pos.add(.(rect.width - width, width)), vertical_size,   color); // right
+        },
+        .Outside :> {
+            horizontal_size := Vector2.(rect.width + 2 * width, width);
+            vertical_size := Vector2.(width, rect.height);
+            rl.DrawRectangleV(pos.sub_val(width),              horizontal_size, color); // top
+            rl.DrawRectangleV(pos.sub_x(width),                vertical_size,   color); // left
+            rl.DrawRectangleV(pos.add(.(-width, rect.height)), horizontal_size, color); // bottom
+            rl.DrawRectangleV(pos.add_x(rect.width),           vertical_size,   color); // right
+        },
+    }
 }
 
 draw_centered_text :: (text: *u8, container: Rectangle, font_size: f32, text_color: Color) -> {

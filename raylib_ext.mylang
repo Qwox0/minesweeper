@@ -12,6 +12,8 @@ Vector2.add_x :: (v: Vector2, add: f32) -> Vector2.(v.x + add, v.y);
 Vector2.add_y :: (v: Vector2, add: f32) -> Vector2.(v.x, v.y + add);
 Vector2.sub :: rm.Vector2Subtract;
 Vector2.sub_val :: rm.Vector2SubtractValue;
+Vector2.sub_x :: (v: Vector2, sub: f32) -> Vector2.(v.x - sub, v.y);
+Vector2.sub_y :: (v: Vector2, sub: f32) -> Vector2.(v.x, v.y - sub);
 Vector2.mul :: rm.Vector2Multiply;
 Vector2.div :: rm.Vector2Divide;
 
